@@ -1,0 +1,334 @@
+.folderizer-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5em;
+    margin: 0.35em 0;
+}
+
+.folderizer-create-folder,
+.folderizer-lore-create {
+    white-space: nowrap;
+    font-size: 0.85em;
+    line-height: 1.1;
+    padding: 0.25em 0.45em;
+}
+
+.folderizer-labeled-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35em;
+}
+
+.folderizer-lore-create {
+    width: 2.2em;
+    min-width: 2.2em;
+    justify-content: center;
+    padding: 0.25em;
+}
+
+.folderizer-folder {
+    --folderizer-background-color: var(--SmartThemeBlurTintColor);
+    --folderizer-border-color: var(--SmartThemeBorderColor);
+    --folderizer-name-color: inherit;
+    display: block;
+    list-style: none;
+    margin: 0.35em 0;
+    border: 1px solid var(--folderizer-border-color);
+    border-radius: 8px;
+    background: var(--folderizer-background-color);
+    overflow: visible;
+}
+
+#completion_prompt_manager #completion_prompt_manager_list > li.folderizer-folder,
+#completion_prompt_manager #completion_prompt_manager_list .folderizer-folder {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.folderizer-folder-header {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
+    align-items: center;
+    gap: 0.45em;
+    min-height: 2.4em;
+    padding: 0.35em 0.55em;
+}
+
+.folderizer-folder-header.has-state-toggle {
+    grid-template-columns: auto auto auto minmax(0, 1fr) auto auto auto;
+}
+
+.folderizer-folder-name {
+    color: var(--folderizer-name-color);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.folderizer-folder-count {
+    opacity: 0.75;
+    font-size: 0.85em;
+}
+
+.folderizer-folder-items {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    min-height: 2.4em;
+    margin: 0;
+    padding: 0 0.35em 0.35em;
+    list-style: none;
+}
+
+.folderizer-regex-items {
+    padding: 0 0.35em 0.35em;
+}
+
+.folderizer-regex-items:empty {
+    min-height: 2.4em;
+}
+
+.folderizer-folder.is-collapsed .folderizer-folder-items {
+    display: none;
+}
+
+.folderizer-edit-form {
+    display: grid;
+    gap: 0.85em;
+    min-width: min(34em, 80vw);
+    text-align: left;
+}
+
+.folderizer-move-form {
+    display: grid;
+    gap: 0.85em;
+    min-width: min(24em, 80vw);
+    text-align: left;
+}
+
+.folderizer-edit-title {
+    font-weight: 700;
+    color: var(--SmartThemeBodyColor);
+}
+
+.folderizer-edit-form label,
+.folderizer-move-form label {
+    display: grid;
+    grid-template-columns: 8.5em minmax(0, 1fr);
+    align-items: center;
+    gap: 0.75em;
+}
+
+.folderizer-edit-form label > span:first-child,
+.folderizer-move-form label > span:first-child {
+    color: var(--SmartThemeBodyColor);
+    opacity: 0.9;
+}
+
+.folderizer-edit-form input[type="text"],
+.folderizer-edit-form input[type="color"] {
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 86%, black);
+    color: var(--SmartThemeBodyColor);
+}
+
+.folderizer-edit-form input[type="text"] {
+    min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.45em 0.65em;
+}
+
+.folderizer-edit-form input[type="color"] {
+    width: 3em;
+    height: 2.15em;
+    padding: 0;
+    cursor: pointer;
+}
+
+.folderizer-color-controls {
+    display: grid;
+    grid-template-columns: auto minmax(8em, 1fr);
+    align-items: center;
+    gap: 0.5em;
+}
+
+.folderizer-move-to-folder {
+    flex: 0 0 auto;
+}
+
+#completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt .prompt_manager_prompt_controls .folderizer-move-to-folder {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    height: 20px;
+    width: 20px;
+    margin-left: 0.25em;
+    cursor: pointer;
+    filter: drop-shadow(0px 0px 2px black);
+    opacity: 0.4;
+}
+
+#completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt .prompt_manager_prompt_controls .folderizer-move-to-folder:hover {
+    opacity: 1;
+}
+
+.folderizer-drop-placeholder {
+    min-height: 2.4em;
+    width: 100%;
+    border: 1px dashed var(--SmartThemeQuoteColor);
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 8%, transparent);
+}
+
+.folderizer-dropping-into-folder > .folderizer-drop-placeholder {
+    display: none;
+}
+
+.folderizer-drop-target {
+    outline: 2px solid var(--SmartThemeQuoteColor);
+    outline-offset: 2px;
+}
+
+.folderizer-drop-target > .folderizer-folder-items {
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 10%, transparent);
+}
+
+.ui-sortable-helper.regex-script-label,
+.ui-sortable-helper.completion_prompt_manager_prompt,
+.ui-sortable-helper.world_entry {
+    box-sizing: border-box;
+    pointer-events: none;
+    z-index: 10000;
+}
+
+.folderizer-prompt-items:empty {
+    min-height: 2.4em;
+}
+
+.folderizer-lore-items:empty {
+    min-height: 2.4em;
+}
+
+.folderizer-prompt-root > .completion_prompt_manager_prompt,
+.folderizer-lore-root > .world_entry,
+.folderizer-regex-root > .regex-script-label {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 4rem;
+}
+
+.folderizer-folder-items > .completion_prompt_manager_prompt,
+.folderizer-folder-items > .world_entry,
+.folderizer-folder-items > .regex-script-label {
+    content-visibility: visible;
+    contain-intrinsic-size: none;
+}
+
+#completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(5.5em, auto) auto;
+    align-items: center;
+    gap: 0.45em;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+#completion_prompt_manager #completion_prompt_manager_list .folderizer-folder-items > li.completion_prompt_manager_prompt {
+    margin: 0 0 0.35em;
+}
+
+#completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt .completion_prompt_manager_prompt_name {
+    min-width: 0;
+}
+
+#completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt .prompt_manager_prompt_controls {
+    gap: 0.35em;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+}
+
+#completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt .prompt_manager_prompt_tokens {
+    min-width: 2.5em;
+}
+
+.folderizer-lore-items > .world_entry {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.folderizer-pagination-note {
+    opacity: 0.75;
+    font-size: 0.9em;
+    white-space: nowrap;
+}
+
+.folderizer-state-toggle[data-state="mixed"] {
+    color: var(--SmartThemeQuoteColor);
+}
+
+.folderizer-settings .inline-drawer-content {
+    gap: 0.35em;
+}
+
+.folderizer-settings-clear {
+    display: grid;
+    gap: 0.35em;
+    margin-top: 0.6em;
+}
+
+.folderizer-settings-subtitle {
+    font-size: 0.9em;
+    font-weight: 600;
+    opacity: 0.85;
+}
+
+.folderizer-settings-actions {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, max-content));
+    align-items: center;
+    gap: 0.4em;
+}
+
+.folderizer-settings-actions .menu_button {
+    min-width: 0;
+    white-space: nowrap;
+    font-size: 0.9em;
+    padding: 0.35em 0.55em;
+}
+
+.folderizer-regex-root .regex-script-label {
+    width: 100%;
+}
+
+.folderizer-searching .folderizer-drag,
+.folderizer-searching .drag-handle {
+    pointer-events: none;
+    opacity: 0.35;
+}
+
+@media (max-width: 700px) {
+    .folderizer-folder-header {
+        grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
+    }
+
+    .folderizer-folder-header.has-state-toggle {
+        grid-template-columns: auto auto auto minmax(0, 1fr) auto auto auto;
+    }
+
+    .folderizer-edit-form label,
+    .folderizer-move-form label {
+        grid-template-columns: 1fr;
+        gap: 0.35em;
+    }
+
+    .folderizer-color-controls {
+        grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .folderizer-settings-actions {
+        grid-template-columns: repeat(2, max-content);
+    }
+}
