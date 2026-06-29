@@ -1,5 +1,16 @@
 export const FOLDERIZER_VERSION = 1;
 
+export function generateUUID() {
+    if (typeof globalThis.crypto?.randomUUID === 'function') {
+        return globalThis.crypto.randomUUID();
+    }
+
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, value => {
+        const random = Math.floor(Math.random() * 16);
+        return (value === 'x' ? random : (random & 0x3) | 0x8).toString(16);
+    });
+}
+
 export function createEmptyLayout(itemIds = []) {
     return {
         version: FOLDERIZER_VERSION,
@@ -27,7 +38,7 @@ function uniqueFolderName(name, usedNames) {
     return candidate;
 }
 
-export function normalizeLayout(rawLayout, itemIds = []) {
+export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolders = true } = {}) {
     const validIds = itemIds.map(String);
     const validSet = new Set(validIds);
     const source = rawLayout && typeof rawLayout === 'object' ? rawLayout : {};
@@ -35,12 +46,12 @@ export function normalizeLayout(rawLayout, itemIds = []) {
     const usedFolderIds = new Set();
     const usedFolderNames = new Set();
     const placedItems = new Set();
-    const folders = [];
+    let folders = [];
 
     for (const candidate of sourceFolders) {
         if (!candidate || typeof candidate !== 'object') continue;
-        let id = String(candidate.id || crypto.randomUUID());
-        while (usedFolderIds.has(id)) id = crypto.randomUUID();
+        let id = String(candidate.id || generateUUID());
+        while (usedFolderIds.has(id)) id = generateUUID();
         usedFolderIds.add(id);
 
         const items = [];
@@ -76,14 +87,28 @@ export function normalizeLayout(rawLayout, itemIds = []) {
         }
     }
 
-    for (const folder of folders) {
-        if (!placedFolders.has(folder.id)) root.push({ type: 'folder', id: folder.id });
+    if (preserveUnrootedFolders) {
+        for (const folder of folders) {
+            if (!placedFolders.has(folder.id)) root.push({ type: 'folder', id: folder.id });
+        }
+    } else {
+        folders = folders.filter(folder => placedFolders.has(folder.id));
     }
 
-    const ownerIndex = itemId => root.findIndex(node => {
-        if (node.type === 'item') return node.id === itemId;
-        return folderMap.get(node.id)?.items.includes(itemId);
-    });
+    const ownerIndices = new Map();
+    const rebuildOwnerIndices = (startIndex = 0) => {
+        for (let rootIndex = startIndex; rootIndex < root.length; rootIndex++) {
+            const node = root[rootIndex];
+            if (node.type === 'item') {
+                ownerIndices.set(node.id, rootIndex);
+                continue;
+            }
+            for (const itemId of folderMap.get(node.id)?.items ?? []) {
+                ownerIndices.set(itemId, rootIndex);
+            }
+        }
+    };
+    rebuildOwnerIndices();
 
     for (let index = 0; index < validIds.length; index++) {
         const itemId = validIds[index];
@@ -91,7 +116,7 @@ export function normalizeLayout(rawLayout, itemIds = []) {
 
         let insertionIndex = root.length;
         for (let previous = index - 1; previous >= 0; previous--) {
-            const previousOwner = ownerIndex(validIds[previous]);
+            const previousOwner = ownerIndices.get(validIds[previous]) ?? -1;
             if (previousOwner !== -1) {
                 insertionIndex = previousOwner + 1;
                 break;
@@ -99,7 +124,7 @@ export function normalizeLayout(rawLayout, itemIds = []) {
         }
         if (insertionIndex === root.length) {
             for (let next = index + 1; next < validIds.length; next++) {
-                const nextOwner = ownerIndex(validIds[next]);
+                const nextOwner = ownerIndices.get(validIds[next]) ?? -1;
                 if (nextOwner !== -1) {
                     insertionIndex = nextOwner;
                     break;
@@ -108,6 +133,7 @@ export function normalizeLayout(rawLayout, itemIds = []) {
         }
         root.splice(insertionIndex, 0, { type: 'item', id: itemId });
         placedItems.add(itemId);
+        rebuildOwnerIndices(insertionIndex);
     }
 
     return { version: FOLDERIZER_VERSION, root, folders };

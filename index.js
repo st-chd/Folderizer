@@ -7,11 +7,16 @@ import { renderTemplateAsync } from '../../../templates.js';
 import { getSortableDelay, initScrollHeight, waitUntilCondition } from '../../../utils.js';
 import { accountStorage } from '../../../util/AccountStorage.js';
 import {
+    createWorldInfoEntry,
+    deleteWIOriginalDataValue,
+    deleteWorldInfoEntry,
     getWorldEntry,
     loadWorldInfo,
+    reloadEditor,
     saveWorldInfo,
     setWIOriginalDataValue,
     SORT_ORDER_KEY,
+    updateWorldInfoList,
     world_names,
 } from '../../../world-info.js';
 import {
@@ -20,7 +25,9 @@ import {
     SCRIPT_TYPES,
 } from '../../regex/engine.js';
 import {
+    FOLDERIZER_VERSION,
     flattenLayout,
+    generateUUID,
     hasDuplicateFolderName,
     normalizeLayout,
     removeFolder,
@@ -29,6 +36,8 @@ import {
 const EXTENSION_NAME = 'Folderizer';
 const LORE_SORT_VALUE = 'folderizer';
 const DEFAULT_PICKER_COLOR = '#7c6ee6';
+const BUNDLE_KIND = 'folderizer-bundle';
+const BUNDLE_VERSION = 1;
 
 const REGEX_TYPES = {
     global: {
@@ -53,6 +62,7 @@ let renderingLorebook = false;
 let loreRenderQueued = false;
 let loreRenderRequestedAfterRender = false;
 let loreObserver = null;
+let handlingLoreAction = false;
 let regexObserver = null;
 let enhancingRegex = false;
 let sortingPrompt = false;
@@ -106,6 +116,22 @@ function promptOwnerKey() {
     return `${manager?.apiId || 'openai'}:${manager?.getSelectedPresetName() || ''}`;
 }
 
+function promptOwnerKeyForName(name) {
+    const manager = promptPresetManager();
+    return `${manager?.apiId || 'openai'}:${name || ''}`;
+}
+
+function promptExportName() {
+    return promptPresetManager()?.getSelectedPresetName?.() || 'prompts';
+}
+
+function promptBundlePresetName(bundle) {
+    if (bundle?.presetName) return String(bundle.presetName);
+    const owner = String(bundle?.owner || '');
+    const index = owner.indexOf(':');
+    return index >= 0 ? owner.slice(index + 1) : owner;
+}
+
 function selectedLorebookName() {
     const value = String($('#world_editor_select').find(':selected').val() ?? '');
     return world_names?.[value] || String($('#world_editor_select').find(':selected').text() ?? '').trim();
@@ -121,12 +147,28 @@ function regexOwnerKey(typeKey) {
     return `preset:${manager?.apiId || 'unknown'}:${manager?.getSelectedPresetName() || ''}`;
 }
 
+function regexExportName(typeKey) {
+    if (typeKey === 'global') return 'global';
+    if (typeKey === 'scoped') return characters?.[this_chid]?.name || characters?.[this_chid]?.avatar || 'scoped';
+    return getPresetManager()?.getSelectedPresetName?.() || 'preset';
+}
+
 function createIconButton(icon, title, className = '') {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = `menu_button fa-solid ${icon} ${className}`.trim();
     button.title = title;
     button.setAttribute('aria-label', title);
+    return button;
+}
+
+function createIconCodeButton(code, title, className = '') {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `menu_button fa-solid folderizer-code-icon ${className}`.trim();
+    button.title = title;
+    button.setAttribute('aria-label', title);
+    button.textContent = String.fromCodePoint(parseInt(code, 16));
     return button;
 }
 
@@ -161,11 +203,14 @@ function cssColorToHex(value, fallback = DEFAULT_PICKER_COLOR) {
     const probe = document.createElement('span');
     probe.style.color = value;
     document.body.append(probe);
-    const color = getComputedStyle(probe).color;
-    probe.remove();
-    const match = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
-    if (!match) return fallback;
-    return `#${[match[1], match[2], match[3]].map(part => Number(part).toString(16).padStart(2, '0')).join('')}`;
+    try {
+        const color = getComputedStyle(probe).color;
+        const match = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+        if (!match) return fallback;
+        return `#${[match[1], match[2], match[3]].map(part => Number(part).toString(16).padStart(2, '0')).join('')}`;
+    } finally {
+        probe.remove();
+    }
 }
 
 function themeColorHex(variableName, fallback = DEFAULT_PICKER_COLOR) {
@@ -449,13 +494,12 @@ function moveItemToFolder(layout, itemId, folderId) {
 
 function attachMoveToFolderButton(element, { kind, layout, itemId, onMove }) {
     if (!element || element.querySelector(':scope .folderizer-move-to-folder') || !layout.folders.length) return;
-    const button = kind === 'prompt'
-        ? document.createElement('span')
-        : createIconButton('fa-folder-open', 'Move to folder', 'folderizer-move-to-folder');
+    const title = 'Move to folder';
+    const button = kind === 'prompt' ? document.createElement('span') : createIconButton('fa-folder-open', title, 'folderizer-move-to-folder');
     if (kind === 'prompt') {
         button.className = 'fa-solid fa-folder-open folderizer-move-to-folder';
-        button.title = 'Move to folder';
-        button.setAttribute('aria-label', 'Move to folder');
+        button.title = title;
+        button.setAttribute('aria-label', title);
     }
     button.addEventListener('click', async event => {
         event.preventDefault();
@@ -497,14 +541,152 @@ function ensureToolbar(parent, key, onCreate, extra = []) {
     parent.prepend(toolbar);
 }
 
+function cloneJson(value) {
+    return JSON.parse(JSON.stringify(value));
+}
+
+function safeFilePart(value) {
+    return String(value || 'current')
+        .replace(/[<>:"/\\|?*\x00-\x1F\x7F]+/g, '_')
+        .replace(/^_+|_+$/g, '')
+        .slice(0, 80) || 'current';
+}
+
+function downloadJson(value, filename) {
+    const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    try {
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = filename;
+        document.body.append(anchor);
+        anchor.click();
+        anchor.remove();
+    } finally {
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+}
+
+function bundleFilename(name) {
+    return `${safeFilePart(name)}.json`;
+}
+
+async function readJsonFile() {
+    return await new Promise(resolve => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'application/json,.json';
+        let settled = false;
+        const settle = value => {
+            if (settled) return;
+            settled = true;
+            resolve(value);
+        };
+        input.addEventListener('cancel', () => settle(null), { once: true });
+        input.addEventListener('change', async () => {
+            const file = input.files?.[0];
+            if (!file) {
+                settle(null);
+                return;
+            }
+            try {
+                settle(JSON.parse(await file.text()));
+            } catch (error) {
+                console.error(`[${EXTENSION_NAME}] Failed to read bundle`, error);
+                toastr.error('Could not read Folderizer bundle.');
+                settle(null);
+            }
+        }, { once: true });
+        input.click();
+    });
+}
+
+function assertBundle(bundle, scope) {
+    if (bundle?.kind !== BUNDLE_KIND || bundle?.scope !== scope) {
+        toastr.error('This is not a matching Folderizer bundle.');
+        return false;
+    }
+    if (bundle.version > BUNDLE_VERSION) {
+        toastr.error('This Folderizer bundle was created by a newer version of Folderizer.');
+        return false;
+    }
+    if (bundle.version !== BUNDLE_VERSION) {
+        toastr.error('This Folderizer bundle version is not supported.');
+        return false;
+    }
+    return true;
+}
+
+function nameKey(value) {
+    return String(value || '').trim().toLocaleLowerCase();
+}
+
+function remapImportedLayout(layout, itemIdMap) {
+    const rootedFolderIds = new Set((layout?.root || [])
+        .filter(node => node?.type === 'folder')
+        .map(node => node.id));
+    const sourceFolders = (layout?.folders || []).filter(folder => rootedFolderIds.has(folder.id));
+    const folderIdMap = new Map(sourceFolders.map(folder => [folder.id, generateUUID()]));
+    return {
+        version: FOLDERIZER_VERSION,
+        root: (layout?.root || []).map(node => {
+            if (node.type === 'folder') return { type: 'folder', id: folderIdMap.get(node.id) };
+            return { type: 'item', id: itemIdMap.get(String(node.id)) };
+        }).filter(node => node.id),
+        folders: sourceFolders.map(folder => ({
+            ...folder,
+            id: folderIdMap.get(folder.id),
+            items: (folder.items || []).map(id => itemIdMap.get(String(id))).filter(Boolean),
+        })).filter(folder => folder.id),
+    };
+}
+
+function removeItemsFromLayout(layout, itemIds) {
+    const ids = new Set(itemIds);
+    return {
+        version: FOLDERIZER_VERSION,
+        root: (layout.root || []).filter(node => node.type !== 'item' || !ids.has(String(node.id))),
+        folders: (layout.folders || []).map(folder => ({
+            ...folder,
+            items: (folder.items || []).filter(id => !ids.has(String(id))),
+        })),
+    };
+}
+
+function mergeImportedLayout(currentLayout, importedLayout, allIds) {
+    const importedIds = flattenLayout(importedLayout);
+    const baseLayout = removeItemsFromLayout(currentLayout, importedIds);
+    return normalizeLayout({
+        version: FOLDERIZER_VERSION,
+        root: [...importedLayout.root, ...baseLayout.root],
+        folders: [...importedLayout.folders, ...baseLayout.folders],
+    }, allIds);
+}
+
+function createBundleButtons(onExport, onImport) {
+    const exportButton = createIconCodeButton('f0ee', 'Export Folderizer bundle', 'folderizer-bundle-button');
+    const importButton = createIconCodeButton('f0ed', 'Import Folderizer bundle', 'folderizer-bundle-button');
+    exportButton.addEventListener('click', async event => {
+        event.preventDefault();
+        event.stopPropagation();
+        await onExport();
+    });
+    importButton.addEventListener('click', async event => {
+        event.preventDefault();
+        event.stopPropagation();
+        await onImport();
+    });
+    return [exportButton, importButton];
+}
+
 function promptOrderIds(manager = promptManager) {
     return manager.getPromptOrderForCharacter(manager.activeCharacter).map(entry => String(entry.identifier));
 }
 
-function readPromptLayout(manager = promptManager) {
+function readPromptLayout(manager = promptManager, normalizeOptions = {}) {
     const owner = promptOwnerKey();
     const raw = settings().layouts.prompts[owner];
-    return { owner, layout: normalizeLayout(raw, promptOrderIds(manager)) };
+    return { owner, layout: normalizeLayout(raw, promptOrderIds(manager), normalizeOptions) };
 }
 
 async function persistPromptLayout(owner, layout, manager = promptManager) {
@@ -518,27 +700,154 @@ async function persistPromptLayout(owner, layout, manager = promptManager) {
     await manager.saveServiceSettings();
 }
 
-function promptLayoutFromDom(list, sourceLayout) {
+function ensurePromptOrder(manager = promptManager) {
+    if (!manager.activeCharacter) return [];
+    manager.serviceSettings.prompt_order ??= [];
+    const list = manager.serviceSettings.prompt_order.find(value => String(value.character_id) === String(manager.activeCharacter.id));
+    if (list) return list.order;
+    let order = manager.getPromptOrderForCharacter(manager.activeCharacter);
+    if (!order.length) {
+        manager.addPromptOrderForCharacter(manager.activeCharacter, []);
+        order = manager.getPromptOrderForCharacter(manager.activeCharacter);
+    }
+    return order;
+}
+
+async function exportPromptBundle(manager = promptManager) {
+    const owner = promptOwnerKey();
+    const layout = currentPromptLayout
+        ? normalizeLayout(currentPromptLayout, promptOrderIds(manager), { preserveUnrootedFolders: false })
+        : readPromptLayout(manager, { preserveUnrootedFolders: false }).layout;
+    settings().layouts.prompts[owner] = layout;
+    currentPromptLayout = layout;
+    saveSettingsDebounced();
+    const presetManager = promptPresetManager();
+    const presetName = promptExportName();
+    const ids = new Set(flattenLayout(layout));
+    const prompts = (manager.serviceSettings.prompts || [])
+        .filter(prompt => prompt?.identifier && ids.has(String(prompt.identifier)))
+        .map(cloneJson);
+    const promptOrder = manager.getPromptOrderForCharacter(manager.activeCharacter)
+        .filter(entry => ids.has(String(entry.identifier)))
+        .map(cloneJson);
+
+    downloadJson({
+        kind: BUNDLE_KIND,
+        version: BUNDLE_VERSION,
+        scope: 'prompts',
+        owner,
+        presetName,
+        presetSettings: cloneJson(presetManager?.getPresetSettings?.(presetName) || {}),
+        layout: cloneJson(layout),
+        prompts,
+        promptOrder,
+    }, bundleFilename(presetName));
+    toastr.success('Folderizer prompt bundle exported.');
+}
+
+async function importPromptBundle(manager = promptManager) {
+    const bundle = await readJsonFile();
+    if (!bundle || !assertBundle(bundle, 'prompts')) return;
+    if (!Array.isArray(bundle.prompts) || !Array.isArray(bundle.promptOrder)) {
+        toastr.error('Folderizer prompt bundle is missing prompt data.');
+        return;
+    }
+    const presetManager = promptPresetManager();
+    const presetName = promptBundlePresetName(bundle);
+    if (!presetName) {
+        toastr.error('Folderizer prompt bundle is missing a preset name.');
+        return;
+    }
+    const exists = presetManager?.getAllPresets?.().includes(presetName);
+    const confirmed = await Popup.show.confirm('Import prompt bundle', exists
+        ? `Replace the existing prompt preset "${presetName}" with this Folderizer bundle?`
+        : `Create a new prompt preset "${presetName}" from this Folderizer bundle?`);
+    if (!confirmed) return;
+
+    const presetSettings = cloneJson(bundle.presetSettings || presetManager?.getPresetSettings?.(presetName) || {});
+    await presetManager.savePreset(presetName, presetSettings);
+    const presetValue = presetManager.findPreset(presetName);
+    if (presetValue !== undefined) presetManager.selectPreset(presetValue);
+    await waitUntilCondition(() => presetManager.getSelectedPresetName() === presetName, 5000, 100);
+
+    const importedPrompts = bundle.prompts.filter(prompt => prompt?.identifier);
+    const currentPrompts = exists ? (manager.serviceSettings.prompts || []) : [];
+    const promptsById = new Map(currentPrompts
+        .filter(prompt => prompt?.identifier)
+        .map(prompt => [String(prompt.identifier), prompt]));
+    const promptsByName = new Map(currentPrompts
+        .filter(prompt => prompt?.name)
+        .map(prompt => [nameKey(prompt.name), prompt]));
+    const usedIds = new Set(promptsById.keys());
+    const idMap = new Map();
+    importedPrompts.forEach(prompt => {
+        const imported = cloneJson(prompt);
+        const existing = promptsByName.get(nameKey(imported.name));
+        const sourceId = String(imported.identifier);
+        if (existing) {
+            imported.identifier = existing.identifier;
+        } else if (!imported.identifier || usedIds.has(String(imported.identifier))) {
+            imported.identifier = crypto.randomUUID();
+        }
+        const targetId = String(imported.identifier);
+        idMap.set(sourceId, targetId);
+        usedIds.add(targetId);
+        promptsById.set(targetId, imported);
+    });
+    manager.setPrompts([...promptsById.values()]);
+
+    const owner = promptOwnerKeyForName(presetName);
+    const currentIds = exists ? promptOrderIds(manager) : [];
+    // Imports may reuse existing prompts, but the Folderizer layout itself comes from the bundle.
+    const currentLayout = normalizeLayout(null, currentIds);
+    const importedLayout = remapImportedLayout(bundle.layout, idMap);
+    const allIds = [...new Set([...currentIds, ...idMap.values()])];
+    const layout = mergeImportedLayout(currentLayout, importedLayout, allIds);
+    const orderById = new Map(bundle.promptOrder.map(entry => {
+        const targetId = idMap.get(String(entry.identifier));
+        return targetId ? [targetId, { ...cloneJson(entry), identifier: targetId }] : null;
+    }).filter(Boolean));
+    const order = ensurePromptOrder(manager);
+    const existingOrderById = new Map(exists ? order.map(entry => [String(entry.identifier), entry]) : []);
+    order.splice(0, order.length, ...flattenLayout(layout).map(id => orderById.get(id) ?? existingOrderById.get(id) ?? { identifier: id, enabled: true }));
+
+    settings().layouts.prompts[owner] = layout;
+    currentPromptLayout = layout;
+    saveSettingsDebounced();
+    await manager.saveServiceSettings();
+    manager.render(false);
+    toastr.success('Folderizer prompt bundle imported.');
+}
+
+function promptLayoutFromDom(list, sourceLayout, { preserveFolderIds = new Set(), normalizeOptions = {} } = {}) {
     const folderSource = new Map(sourceLayout.folders.map(folder => [folder.id, folder]));
     const root = [];
     const folders = [];
+    const seenPreservedFolders = new Set();
 
     for (const element of list.children) {
         if (element.classList.contains('folderizer-folder')) {
             const id = element.dataset.folderizerId;
             const source = folderSource.get(id);
             if (!source) continue;
-            const items = [...element.querySelector('.folderizer-folder-items').children]
-                .map(item => item.dataset.pmIdentifier)
-                .filter(Boolean);
+            const items = preserveFolderIds.has(id)
+                ? [...source.items]
+                : [...element.querySelector('.folderizer-folder-items').children]
+                    .map(item => item.dataset.pmIdentifier)
+                    .filter(Boolean);
             folders.push({ ...source, items });
             root.push({ type: 'folder', id });
+            if (preserveFolderIds.has(id)) seenPreservedFolders.add(id);
         } else if (element.dataset.pmIdentifier) {
             root.push({ type: 'item', id: element.dataset.pmIdentifier });
         }
     }
 
-    return normalizeLayout({ version: 1, root, folders }, promptOrderIds());
+    if ([...preserveFolderIds].some(id => !seenPreservedFolders.has(id))) {
+        return normalizeLayout(sourceLayout, promptOrderIds(), normalizeOptions);
+    }
+
+    return normalizeLayout({ version: 1, root, folders }, promptOrderIds(), normalizeOptions);
 }
 
 function setupPromptSortables(manager) {
@@ -552,12 +861,23 @@ function setupPromptSortables(manager) {
     });
 
     let saving = false;
-    const saveFromDom = async () => {
+    const saveFromDom = async ({ preserveFolderIds = new Set() } = {}) => {
         if (saving) return;
         saving = true;
         try {
-            list.querySelectorAll('.folderizer-folder').forEach(updateFolderCount);
-            const next = promptLayoutFromDom(list, currentPromptLayout);
+            const preservedFolders = new Map(currentPromptLayout.folders
+                .filter(folder => preserveFolderIds.has(folder.id))
+                .map(folder => [folder.id, folder]));
+            list.querySelectorAll('.folderizer-folder').forEach(element => {
+                const preserved = preservedFolders.get(element.dataset.folderizerId);
+                if (!preserved) {
+                    updateFolderCount(element);
+                    return;
+                }
+                const countElement = element.querySelector('.folderizer-folder-count');
+                if (countElement) countElement.textContent = String(preserved.items.length);
+            });
+            const next = promptLayoutFromDom(list, currentPromptLayout, { preserveFolderIds });
             await persistPromptLayout(promptOwnerKey(), next, manager);
         } catch (error) {
             console.error(`[${EXTENSION_NAME}] Failed to save prompt folder order`, error);
@@ -570,7 +890,22 @@ function setupPromptSortables(manager) {
 
     let lastPointer = null;
     let lastFolderElement = null;
-    const rememberPointer = event => {
+    let draggingPromptIntoFolder = false;
+    let draggingFolderId = null;
+    const clearFolderDropState = () => {
+        lastPointer = null;
+        lastFolderElement = null;
+        draggingPromptIntoFolder = false;
+        draggingFolderId = null;
+        list.classList.remove('folderizer-dropping-into-folder');
+        list.querySelectorAll('.folderizer-drop-target').forEach(element => element.classList.remove('folderizer-drop-target'));
+    };
+    const rememberPointer = (event, ui) => {
+        if (!draggingPromptIntoFolder) {
+            list.classList.remove('folderizer-dropping-into-folder');
+            list.querySelectorAll('.folderizer-drop-target').forEach(element => element.classList.remove('folderizer-drop-target'));
+            return;
+        }
         lastPointer = { x: event.clientX, y: event.clientY };
         const pointedFolder = document.elementsFromPoint(lastPointer.x, lastPointer.y)
             .map(element => element.closest?.('.folderizer-prompt-folder'))
@@ -579,6 +914,9 @@ function setupPromptSortables(manager) {
         list.classList.toggle('folderizer-dropping-into-folder', Boolean(pointedFolder));
         list.querySelectorAll('.folderizer-drop-target').forEach(element => element.classList.remove('folderizer-drop-target'));
         pointedFolder?.classList.add('folderizer-drop-target');
+        const placeholder = ui?.placeholder?.[0];
+        const items = pointedFolder?.querySelector?.('.folderizer-prompt-items');
+        if (placeholder && items && !items.contains(placeholder)) items.append(placeholder);
     };
     const movePromptIntoPointedFolder = item => {
         if (!item?.classList?.contains('completion_prompt_manager_prompt_draggable') || !lastPointer) return;
@@ -590,35 +928,51 @@ function setupPromptSortables(manager) {
         items.append(item);
         updateFolderCount(folderElement);
     };
+    const afterPromptSort = task => {
+        setTimeout(() => {
+            task().catch(error => {
+                console.error(`[${EXTENSION_NAME}] Failed to finish prompt folder sort`, error);
+                toastr.error('Failed to save prompt folder order.');
+                manager.render(false);
+            });
+        }, 0);
+    };
 
     $list.sortable({
         delay: getSortableDelay(),
         handle: '.drag-handle',
         items: '> .completion_prompt_manager_prompt_draggable, > .folderizer-folder',
-        connectWith: '.folderizer-prompt-items',
         placeholder: 'folderizer-drop-placeholder',
         helper: 'clone',
         appendTo: document.body,
         zIndex: 10000,
         tolerance: 'pointer',
         forcePlaceholderSize: true,
-        start: () => {
+        start: (_, ui) => {
+            const item = ui.item?.[0];
             sortingPrompt = true;
+            draggingPromptIntoFolder = item?.classList?.contains('completion_prompt_manager_prompt_draggable') ?? false;
+            draggingFolderId = item?.classList?.contains('folderizer-folder') ? item.dataset.folderizerId : null;
         },
         sort: rememberPointer,
         stop: (_, ui) => {
-            setTimeout(async () => {
+            afterPromptSort(async () => {
                 try {
-                    movePromptIntoPointedFolder(ui.item?.[0]);
-                    await saveFromDom();
+                    const item = ui.item?.[0];
+                    if (draggingFolderId && item?.parentElement !== list) {
+                        manager.render(false);
+                        return;
+                    }
+                    const preserveFolderIds = item?.classList?.contains('folderizer-folder')
+                        ? new Set([item.dataset.folderizerId].filter(Boolean))
+                        : new Set();
+                    movePromptIntoPointedFolder(item);
+                    await saveFromDom({ preserveFolderIds });
                 } finally {
                     sortingPrompt = false;
-                    lastPointer = null;
-                    lastFolderElement = null;
-                    list.classList.remove('folderizer-dropping-into-folder');
-                    list.querySelectorAll('.folderizer-drop-target').forEach(element => element.classList.remove('folderizer-drop-target'));
+                    clearFolderDropState();
                 }
-            }, 0);
+            });
         },
     });
     list.querySelectorAll('.folderizer-prompt-items').forEach(element => {
@@ -633,26 +987,34 @@ function setupPromptSortables(manager) {
             zIndex: 10000,
             tolerance: 'pointer',
             forcePlaceholderSize: true,
-            start: () => {
+            start: (_, ui) => {
+                const item = ui.item?.[0];
                 sortingPrompt = true;
+                draggingPromptIntoFolder = item?.classList?.contains('completion_prompt_manager_prompt_draggable') ?? false;
+                draggingFolderId = item?.classList?.contains('folderizer-folder') ? item.dataset.folderizerId : null;
             },
             sort: rememberPointer,
             receive: (_, ui) => {
                 if (ui.item.hasClass('folderizer-folder')) $(ui.sender).sortable('cancel');
             },
             stop: (_, ui) => {
-                setTimeout(async () => {
+                afterPromptSort(async () => {
                     try {
-                        movePromptIntoPointedFolder(ui.item?.[0]);
-                        await saveFromDom();
+                        const item = ui.item?.[0];
+                        if (item?.classList?.contains('folderizer-folder')) {
+                            manager.render(false);
+                            return;
+                        }
+                        const preserveFolderIds = item?.classList?.contains('folderizer-folder')
+                            ? new Set([item.dataset.folderizerId].filter(Boolean))
+                            : new Set();
+                        movePromptIntoPointedFolder(item);
+                        await saveFromDom({ preserveFolderIds });
                     } finally {
                         sortingPrompt = false;
-                        lastPointer = null;
-                        lastFolderElement = null;
-                        list.classList.remove('folderizer-dropping-into-folder');
-                        list.querySelectorAll('.folderizer-drop-target').forEach(element => element.classList.remove('folderizer-drop-target'));
+                        clearFolderDropState();
                     }
-                }, 0);
+                });
             },
         });
     });
@@ -684,6 +1046,7 @@ async function enhancePromptList(manager) {
         const folder = currentPromptLayout.folders.find(value => value.id === id);
         if (!folder || !await Popup.show.confirm('Delete folder', `Delete "${folder.name}" and keep its prompts at the root?`)) return;
         removeFolder(currentPromptLayout, id);
+        currentPromptLayout = normalizeLayout(currentPromptLayout, promptOrderIds(manager), { preserveUnrootedFolders: false });
         await persistPromptLayout(owner, currentPromptLayout, manager);
         rerender();
     };
@@ -738,7 +1101,7 @@ async function enhancePromptList(manager) {
         currentPromptLayout.root.unshift({ type: 'folder', id: folder.id });
         await persistPromptLayout(owner, currentPromptLayout, manager);
         rerender();
-    });
+    }, createBundleButtons(() => exportPromptBundle(manager), () => importPromptBundle(manager)));
 }
 
 async function installPromptIntegration() {
@@ -828,6 +1191,172 @@ async function createLorebookFolder() {
     queueLoreRender();
 }
 
+function loreEntryIds(data) {
+    return Object.values(data?.entries || {})
+        .filter(entry => entry && typeof entry === 'object')
+        .map(entry => String(entry.uid));
+}
+
+async function exportLorebookBundle() {
+    const name = selectedLorebookName();
+    if (!name) {
+        toastr.warning('Select a lorebook first.');
+        return;
+    }
+    const data = await loadWorldInfo(name);
+    const layout = normalizeLayout(settings().layouts.lorebooks[name], loreEntryIds(data));
+    settings().layouts.lorebooks[name] = layout;
+    saveSettingsDebounced();
+
+    downloadJson({
+        kind: BUNDLE_KIND,
+        version: BUNDLE_VERSION,
+        scope: 'lorebooks',
+        owner: name,
+        layout: cloneJson(layout),
+        data: cloneJson(data),
+    }, bundleFilename(name));
+    toastr.success('Folderizer lorebook bundle exported.');
+}
+
+async function importLorebookBundle() {
+    const bundle = await readJsonFile();
+    if (!bundle || !assertBundle(bundle, 'lorebooks')) return;
+    if (!bundle.data?.entries) {
+        toastr.error('Folderizer lorebook bundle is missing lorebook data.');
+        return;
+    }
+    const name = String(bundle.owner || bundle.data.name || selectedLorebookName() || '').trim();
+    if (!name) {
+        toastr.warning('Folderizer lorebook bundle is missing a lorebook name.');
+        return;
+    }
+    const exists = world_names.includes(name);
+    const confirmed = await Popup.show.confirm('Import lorebook bundle', exists
+        ? `Replace the existing lorebook "${name}" with this Folderizer bundle?`
+        : `Create a new lorebook "${name}" from this Folderizer bundle?`);
+    if (!confirmed) return;
+
+    const data = cloneJson(bundle.data);
+    const layout = normalizeLayout(bundle.layout, loreEntryIds(data));
+    await saveWorldInfo(name, data, true);
+    settings().layouts.lorebooks[name] = layout;
+    saveSettingsDebounced();
+    await updateWorldInfoList();
+    const index = world_names.indexOf(name);
+    if (index >= 0) $('#world_editor_select').val(index).trigger('change');
+    await reloadEditor(name, true);
+    if (document.getElementById('world_info_sort_order')?.value === LORE_SORT_VALUE) queueLoreRender();
+    toastr.success('Folderizer lorebook bundle imported.');
+}
+
+async function createLorebookEntryInFolderOrder() {
+    if (handlingLoreAction) return;
+    if (!featureEnabled('lorebooks')) return;
+    handlingLoreAction = true;
+    try {
+        const name = selectedLorebookName();
+        if (!name) return;
+        const data = await loadWorldInfo(name);
+        if (!data?.entries) return;
+
+        const entry = createWorldInfoEntry(name, data);
+        if (!entry) return;
+        syncLoreOriginalEntry(data, entry);
+
+        const allIds = Object.values(data.entries)
+            .filter(value => value && typeof value === 'object')
+            .map(value => String(value.uid));
+        const layout = normalizeLayout(settings().layouts.lorebooks[name], allIds);
+        const entryId = String(entry.uid);
+        layout.root = layout.root.filter(node => !(node.type === 'item' && node.id === entryId));
+        for (const folder of layout.folders) {
+            folder.items = folder.items.filter(id => id !== entryId);
+        }
+        layout.root.unshift({ type: 'item', id: entryId });
+
+        await persistLoreLayout(name, layout);
+        await saveWorldInfo(name, data, true);
+        queueLoreRender();
+    } finally {
+        handlingLoreAction = false;
+    }
+}
+
+function syncLoreOriginalEntry(data, entry) {
+    if (!data?.originalData || !Array.isArray(data.originalData.entries) || !entry) return;
+    const uid = Number(entry.uid);
+    const existing = data.originalData.entries.find(value => value.uid === uid || value.id === uid);
+    const original = existing ?? { uid, id: uid };
+    original.uid = uid;
+    original.id = uid;
+    original.keys = Array.isArray(entry.key) ? [...entry.key] : [];
+    original.secondary_keys = Array.isArray(entry.keysecondary) ? [...entry.keysecondary] : [];
+    original.comment = entry.comment ?? '';
+    original.content = entry.content ?? '';
+    original.constant = !!entry.constant;
+    original.selective = !!entry.selective;
+    original.selectiveLogic = entry.selectiveLogic;
+    original.insertion_order = Number(entry.order) || 0;
+    original.enabled = !entry.disable;
+    original.position = entry.position === 0 ? 'before_char' : 'after_char';
+    original.extensions ??= {};
+    original.extensions.display_index = entry.displayIndex ?? entry.uid;
+    original.extensions.position = entry.position;
+    original.extensions.role = entry.role;
+    original.extensions.depth = entry.depth;
+    original.extensions.probability = entry.probability;
+    original.extensions.useProbability = entry.useProbability;
+    original.extensions.exclude_recursion = entry.excludeRecursion;
+    original.extensions.prevent_recursion = entry.preventRecursion;
+    original.extensions.delay_until_recursion = entry.delayUntilRecursion;
+    original.extensions.match_whole_words = entry.matchWholeWords;
+    original.extensions.use_group_scoring = entry.useGroupScoring;
+    original.extensions.case_sensitive = entry.caseSensitive;
+    original.extensions.scan_depth = entry.scanDepth;
+    original.extensions.automation_id = entry.automationId;
+    original.extensions.vectorized = entry.vectorized;
+    original.extensions.outlet_name = entry.outletName;
+    original.extensions.group = entry.group;
+    original.extensions.group_override = entry.groupOverride;
+    original.extensions.group_weight = entry.groupWeight;
+    original.extensions.triggers = Array.isArray(entry.triggers) ? [...entry.triggers] : [];
+    original.extensions.ignore_budget = entry.ignoreBudget;
+    if (!existing) data.originalData.entries.push(original);
+}
+
+async function deleteLorebookEntryInFolderOrder(uid) {
+    if (handlingLoreAction) return;
+    if (!featureEnabled('lorebooks')) return;
+    handlingLoreAction = true;
+    try {
+        const name = selectedLorebookName();
+        if (!name) return;
+        const data = await loadWorldInfo(name);
+        if (!data?.entries) return;
+
+        const entryId = String(uid);
+        const deleted = await deleteWorldInfoEntry(data, entryId);
+        if (!deleted) return;
+        deleteWIOriginalDataValue(data, entryId);
+
+        const allIds = Object.values(data.entries)
+            .filter(value => value && typeof value === 'object')
+            .map(value => String(value.uid));
+        const layout = normalizeLayout(settings().layouts.lorebooks[name], allIds);
+        layout.root = layout.root.filter(node => !(node.type === 'item' && node.id === entryId));
+        for (const folder of layout.folders) {
+            folder.items = folder.items.filter(id => id !== entryId);
+        }
+
+        await persistLoreLayout(name, layout);
+        await saveWorldInfo(name, data, true);
+        queueLoreRender();
+    } finally {
+        handlingLoreAction = false;
+    }
+}
+
 async function setLoreFolderEnabled(name, data, layout, folderId, enabled) {
     const folder = layout.folders.find(value => value.id === folderId);
     if (!folder) return;
@@ -882,7 +1411,22 @@ function setupLoreSortables(name, data, layout) {
 
     let lastPointer = null;
     let lastFolderElement = null;
+    let draggingLoreIntoFolder = false;
+    let draggingLoreFolderId = null;
+    const clearLoreDropState = () => {
+        lastPointer = null;
+        lastFolderElement = null;
+        draggingLoreIntoFolder = false;
+        draggingLoreFolderId = null;
+        list.classList.remove('folderizer-dropping-into-folder');
+        list.querySelectorAll('.folderizer-drop-target').forEach(element => element.classList.remove('folderizer-drop-target'));
+    };
     const rememberPointer = event => {
+        if (!draggingLoreIntoFolder) {
+            list.classList.remove('folderizer-dropping-into-folder');
+            list.querySelectorAll('.folderizer-drop-target').forEach(element => element.classList.remove('folderizer-drop-target'));
+            return;
+        }
         lastPointer = { x: event.clientX, y: event.clientY };
         const pointedFolder = document.elementsFromPoint(lastPointer.x, lastPointer.y)
             .map(element => element.closest?.('.folderizer-lore-folder'))
@@ -903,37 +1447,49 @@ function setupLoreSortables(name, data, layout) {
         updateFolderCount(folderElement);
         return folderElement.dataset.folderizerId;
     };
+    const afterLoreSort = task => {
+        setTimeout(() => {
+            task().catch(error => {
+                console.error(`[${EXTENSION_NAME}] Failed to finish lorebook folder sort`, error);
+                toastr.error('Failed to save lorebook folder order.');
+                queueLoreRender();
+            });
+        }, 0);
+    };
 
     $list.sortable({
         delay: getSortableDelay(),
         handle: '.drag-handle',
         items: '> [uid], > .folderizer-folder',
-        connectWith: '.folderizer-lore-items',
         placeholder: 'folderizer-drop-placeholder',
         helper: 'clone',
         appendTo: document.body,
         zIndex: 10000,
         tolerance: 'pointer',
         forcePlaceholderSize: true,
-        start: () => {
+        start: (_, ui) => {
+            const item = ui.item?.[0];
             sortingLore = true;
+            draggingLoreIntoFolder = item?.hasAttribute?.('uid') ?? false;
+            draggingLoreFolderId = item?.classList?.contains('folderizer-folder') ? item.dataset.folderizerId : null;
         },
         sort: rememberPointer,
         stop: (_, ui) => {
-            setTimeout(async () => {
+            afterLoreSort(async () => {
                 try {
                     const item = ui.item?.[0];
+                    if (draggingLoreFolderId && item?.parentElement !== list) {
+                        queueLoreRender();
+                        return;
+                    }
                     const folderId = moveLoreIntoPointedFolder(item);
                     if (folderId) await moveItemInLayout(String(item.getAttribute('uid')), folderId);
                     else await saveFromDom();
                 } finally {
                     sortingLore = false;
-                    lastPointer = null;
-                    lastFolderElement = null;
-                    list.classList.remove('folderizer-dropping-into-folder');
-                    list.querySelectorAll('.folderizer-drop-target').forEach(element => element.classList.remove('folderizer-drop-target'));
+                    clearLoreDropState();
                 }
-            }, 0);
+            });
         },
     });
     list.querySelectorAll('.folderizer-lore-items').forEach(element => {
@@ -948,28 +1504,32 @@ function setupLoreSortables(name, data, layout) {
             zIndex: 10000,
             tolerance: 'pointer',
             forcePlaceholderSize: true,
-            start: () => {
+            start: (_, ui) => {
+                const item = ui.item?.[0];
                 sortingLore = true;
+                draggingLoreIntoFolder = item?.hasAttribute?.('uid') ?? false;
+                draggingLoreFolderId = item?.classList?.contains('folderizer-folder') ? item.dataset.folderizerId : null;
             },
             sort: rememberPointer,
             receive: (_, ui) => {
                 if (ui.item.hasClass('folderizer-folder')) $(ui.sender).sortable('cancel');
             },
             stop: (_, ui) => {
-                setTimeout(async () => {
+                afterLoreSort(async () => {
                     try {
                         const item = ui.item?.[0];
+                        if (item?.classList?.contains('folderizer-folder')) {
+                            queueLoreRender();
+                            return;
+                        }
                         const folderId = moveLoreIntoPointedFolder(item);
                         if (folderId) await moveItemInLayout(String(item.getAttribute('uid')), folderId);
                         else await saveFromDom();
                     } finally {
                         sortingLore = false;
-                        lastPointer = null;
-                        lastFolderElement = null;
-                        list.classList.remove('folderizer-dropping-into-folder');
-                        list.querySelectorAll('.folderizer-drop-target').forEach(element => element.classList.remove('folderizer-drop-target'));
+                        clearLoreDropState();
                     }
-                }, 0);
+                });
             },
         });
     });
@@ -1004,7 +1564,7 @@ async function renderLorebookFolders() {
         list.innerHTML = '';
         list.classList.add('folderizer-lore-root');
         list.classList.toggle('folderizer-searching', Boolean(query));
-        $('#world_info_pagination').html('<span class="folderizer-pagination-note">Folder order shows all entries</span>');
+        $('#world_info_pagination').empty();
         const headers = await renderTemplateAsync('worldInfoKeywordHeaders');
         list.insertAdjacentHTML('beforeend', headers);
 
@@ -1123,12 +1683,28 @@ function installLorebookIntegration() {
         create.addEventListener('click', createLorebookFolder);
         document.getElementById('world_popup_new')?.after(create);
     }
+    if (!document.getElementById('folderizer_lore_export')) {
+        const [exportButton, importButton] = createBundleButtons(exportLorebookBundle, importLorebookBundle);
+        exportButton.id = 'folderizer_lore_export';
+        importButton.id = 'folderizer_lore_import';
+        exportButton.classList.add('folderizer-lore-bundle');
+        importButton.classList.add('folderizer-lore-bundle');
+        document.getElementById('folderizer_lore_create')?.after(exportButton, importButton);
+    }
     document.querySelector('#WorldInfo .folderizer-toolbar[data-folderizer-toolbar="lore"]')?.remove();
 
     sort.addEventListener('change', event => {
         if (event.target.value !== LORE_SORT_VALUE) {
+            const wasFolderOrder = accountStorage.getItem(SORT_ORDER_KEY) === LORE_SORT_VALUE;
             document.querySelector('#WorldInfo .folderizer-toolbar')?.remove();
             document.getElementById('world_popup_entries_list')?.classList.remove('folderizer-lore-root', 'folderizer-searching');
+            if (wasFolderOrder && featureEnabled('lorebooks')) {
+                event.stopImmediatePropagation();
+                const value = String(event.target.value);
+                if (value !== 'search') accountStorage.setItem(SORT_ORDER_KEY, value);
+                const name = selectedLorebookName();
+                if (name) reloadEditor(name, true);
+            }
             return;
         }
         if (!featureEnabled('lorebooks')) return;
@@ -1146,6 +1722,23 @@ function installLorebookIntegration() {
         event.preventDefault();
         event.stopImmediatePropagation();
         queueLoreRender();
+    }, true);
+    document.getElementById('world_popup_new')?.addEventListener('click', event => {
+        if (sort.value !== LORE_SORT_VALUE || !featureEnabled('lorebooks')) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        createLorebookEntryInFolderOrder();
+    }, true);
+    document.getElementById('world_popup_entries_list')?.addEventListener('click', event => {
+        if (sort.value !== LORE_SORT_VALUE || !featureEnabled('lorebooks')) return;
+        const button = event.target.closest?.('.delete_entry_button');
+        if (!button) return;
+        const entry = button.closest?.('.world_entry');
+        const uid = entry?.getAttribute('uid');
+        if (!uid) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        deleteLorebookEntryInFolderOrder(uid);
     }, true);
 
     loreObserver = new MutationObserver(() => {
@@ -1186,6 +1779,76 @@ async function persistRegexLayout(typeKey, owner, layout, reorder = true) {
     const byId = new Map(scripts.map(script => [String(script.id), script]));
     const reordered = flattenLayout(layout).map(id => byId.get(id)).filter(Boolean);
     await saveScriptsByType(reordered, type);
+}
+
+async function exportRegexBundle(typeKey) {
+    const { owner, layout } = readRegexLayout(typeKey);
+    const type = REGEX_TYPES[typeKey].scriptType;
+    const scripts = getScriptsByType(type).map(cloneJson);
+    downloadJson({
+        kind: BUNDLE_KIND,
+        version: BUNDLE_VERSION,
+        scope: 'regex',
+        typeKey,
+        owner,
+        layout: cloneJson(layout),
+        scripts,
+    }, bundleFilename(regexExportName(typeKey)));
+    toastr.success('Folderizer regex bundle exported.');
+}
+
+async function importRegexBundle(typeKey) {
+    const bundle = await readJsonFile();
+    if (!bundle || !assertBundle(bundle, 'regex')) return;
+    if (!Array.isArray(bundle.scripts)) {
+        toastr.error('Folderizer regex bundle is missing regex data.');
+        return;
+    }
+    if (bundle.typeKey && bundle.typeKey !== typeKey) {
+        toastr.error(`This bundle belongs to the ${REGEX_TYPES[bundle.typeKey]?.label || bundle.typeKey} regex list.`);
+        return;
+    }
+    const label = REGEX_TYPES[typeKey].label;
+    const confirmed = await Popup.show.confirm('Import regex bundle', `Import this Folderizer bundle into the current ${label} regex list? Regex scripts with the same names will be replaced; others will be added.`);
+    if (!confirmed) return;
+
+    const type = REGEX_TYPES[typeKey].scriptType;
+    const owner = regexOwnerKey(typeKey);
+    const currentScripts = getScriptsByType(type);
+    const scriptsById = new Map(currentScripts
+        .filter(script => script?.id)
+        .map(script => [String(script.id), script]));
+    const scriptsByName = new Map(currentScripts
+        .filter(script => script?.scriptName)
+        .map(script => [nameKey(script.scriptName), script]));
+    const usedIds = new Set(scriptsById.keys());
+    const idMap = new Map();
+    bundle.scripts.filter(script => script).forEach(script => {
+        const imported = cloneJson(script);
+        const existing = scriptsByName.get(nameKey(imported.scriptName));
+        const sourceId = String(imported.id || crypto.randomUUID());
+        if (existing) {
+            imported.id = existing.id;
+        } else if (!imported.id || usedIds.has(String(imported.id))) {
+            imported.id = crypto.randomUUID();
+        }
+        const targetId = String(imported.id);
+        idMap.set(sourceId, targetId);
+        usedIds.add(targetId);
+        scriptsById.set(targetId, imported);
+    });
+
+    const currentLayout = normalizeLayout(null, currentScripts.map(script => String(script.id)).filter(Boolean));
+    const importedLayout = remapImportedLayout(bundle.layout, idMap);
+    const allIds = [...new Set([...currentScripts.map(script => String(script.id)).filter(Boolean), ...idMap.values()])];
+    const layout = mergeImportedLayout(currentLayout, importedLayout, allIds);
+    settings().layouts.regex[typeKey][owner] = layout;
+    saveSettingsDebounced();
+    const orderedScripts = flattenLayout(layout).map(id => scriptsById.get(id)).filter(Boolean);
+    await saveScriptsByType(orderedScripts, type);
+    if (getCurrentChatId()) await reloadCurrentChat();
+    enhanceRegexLists();
+    toastr.success('Folderizer regex bundle imported.');
 }
 
 function regexLayoutFromDom(list, sourceLayout, typeKey) {
@@ -1409,7 +2072,7 @@ function enhanceRegexList(typeKey) {
         layout.root.unshift({ type: 'folder', id: folder.id });
         await persistRegexLayout(typeKey, owner, layout, false);
         rerender();
-    });
+    }, createBundleButtons(() => exportRegexBundle(typeKey), () => importRegexBundle(typeKey)));
     setupRegexSortable(typeKey, owner, layout);
 }
 
