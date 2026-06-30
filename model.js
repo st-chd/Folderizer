@@ -1,4 +1,4 @@
-export const FOLDERIZER_VERSION = 1;
+export const FOLDY_VERSION = 1;
 
 export function generateUUID() {
     if (typeof globalThis.crypto?.randomUUID === 'function') {
@@ -13,7 +13,7 @@ export function generateUUID() {
 
 export function createEmptyLayout(itemIds = []) {
     return {
-        version: FOLDERIZER_VERSION,
+        version: FOLDY_VERSION,
         root: itemIds.map(id => ({ type: 'item', id: String(id) })),
         folders: [],
     };
@@ -165,7 +165,7 @@ export function normalizeLayout(rawLayout, itemIds = [], { preserveUnrootedFolde
         .sort(([left], [right]) => right - left)
         .forEach(([index, nodes]) => root.splice(index, 0, ...nodes));
 
-    return { version: FOLDERIZER_VERSION, root, folders };
+    return { version: FOLDY_VERSION, root, folders };
 }
 
 export function removeFolder(layout, folderId) {

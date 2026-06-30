@@ -1,4 +1,4 @@
-.folderizer-toolbar {
+.foldy-toolbar {
     display: flex;
     justify-content: flex-end;
     flex-wrap: wrap;
@@ -6,50 +6,50 @@
     margin: 0.35em 0;
 }
 
-.folderizer-create-folder,
-.folderizer-lore-create,
-.folderizer-bundle-button,
-.folderizer-collapse-all,
-.folderizer-expand-all,
-.folderizer-lore-collapse-all,
-.folderizer-lore-expand-all {
+.foldy-create-folder,
+.foldy-lore-create,
+.foldy-bundle-button,
+.foldy-collapse-all,
+.foldy-expand-all,
+.foldy-lore-collapse-all,
+.foldy-lore-expand-all {
     font-size: inherit;
     line-height: normal;
     white-space: nowrap;
 }
 
-.folderizer-labeled-button {
+.foldy-labeled-button {
     display: inline-flex;
     align-items: center;
     gap: 0.35em;
 }
 
-.folderizer-code-icon {
+.foldy-code-icon {
     font-family: "Font Awesome 6 Free", "Font Awesome 5 Free", sans-serif;
     font-weight: 900;
 }
 
-.folderizer-folder {
-    --folderizer-background-color: var(--SmartThemeBlurTintColor);
-    --folderizer-border-color: var(--SmartThemeBorderColor);
-    --folderizer-name-color: inherit;
+.foldy-folder {
+    --foldy-background-color: var(--SmartThemeBlurTintColor);
+    --foldy-border-color: var(--SmartThemeBorderColor);
+    --foldy-name-color: inherit;
     display: block;
     list-style: none;
     margin: 0.35em 0;
-    border: 1px solid var(--folderizer-border-color);
+    border: 1px solid var(--foldy-border-color);
     border-radius: 8px;
-    background: var(--folderizer-background-color);
+    background: var(--foldy-background-color);
     overflow: visible;
 }
 
-#completion_prompt_manager #completion_prompt_manager_list > li.folderizer-folder,
-#completion_prompt_manager #completion_prompt_manager_list .folderizer-folder {
+#completion_prompt_manager #completion_prompt_manager_list > li.foldy-folder,
+#completion_prompt_manager #completion_prompt_manager_list .foldy-folder {
     display: block;
     width: 100%;
     box-sizing: border-box;
 }
 
-.folderizer-folder-header {
+.foldy-folder-header {
     display: grid;
     grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
     align-items: center;
@@ -58,35 +58,35 @@
     padding: 0.35em 0.55em;
 }
 
-.folderizer-folder-header.has-state-toggle {
+.foldy-folder-header.has-state-toggle {
     grid-template-columns: auto auto auto minmax(0, 1fr) auto auto auto;
 }
 
-.folderizer-folder-name {
-    color: var(--folderizer-name-color);
+.foldy-folder-name {
+    color: var(--foldy-name-color);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     font-weight: 600;
 }
 
-.folderizer-folder-count {
+.foldy-folder-count {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     min-width: 1.65em;
     height: 1.45em;
     padding: 0 0.45em;
-    border: 1px solid color-mix(in srgb, var(--folderizer-border-color) 70%, transparent);
+    border: 1px solid color-mix(in srgb, var(--foldy-border-color) 70%, transparent);
     border-radius: 999px;
-    background: color-mix(in srgb, var(--folderizer-border-color) 18%, transparent);
+    background: color-mix(in srgb, var(--foldy-border-color) 18%, transparent);
     font-size: 0.78em;
     font-weight: 600;
     line-height: 1;
     opacity: 0.9;
 }
 
-.folderizer-folder-items {
+.foldy-folder-items {
     display: flex;
     flex-direction: column;
     gap: 0;
@@ -96,19 +96,19 @@
     list-style: none;
 }
 
-.folderizer-regex-items {
+.foldy-regex-items {
     padding: 0 0.35em 0.35em;
 }
 
-.folderizer-regex-items:empty {
+.foldy-regex-items:empty {
     min-height: 2.4em;
 }
 
-.folderizer-folder.is-collapsed .folderizer-folder-items {
+.foldy-folder.is-collapsed .foldy-folder-items {
     display: none;
 }
 
-.folderizer-edit-form {
+.foldy-edit-form {
     display: grid;
     gap: 0.85em;
     width: min(28em, 82vw);
@@ -118,51 +118,51 @@
     overflow: visible;
 }
 
-.folderizer-folder-settings-form {
+.foldy-folder-settings-form {
     padding-bottom: 0.4em;
 }
 
-.popup:has(.folderizer-folder-settings-form) .popup-body,
-.popup:has(.folderizer-folder-settings-form) .popup-content {
+.popup:has(.foldy-folder-settings-form) .popup-body,
+.popup:has(.foldy-folder-settings-form) .popup-content {
     overflow: visible;
 }
 
-.folderizer-move-form {
+.foldy-move-form {
     display: grid;
     gap: 0.85em;
     min-width: min(24em, 80vw);
     text-align: left;
 }
 
-.folderizer-export-form {
+.foldy-export-form {
     display: grid;
     gap: 0.75em;
     width: min(28em, 82vw);
     text-align: left;
 }
 
-.folderizer-export-hint {
+.foldy-export-hint {
     font-size: 0.9em;
     opacity: 0.8;
     line-height: 1.35;
 }
 
-.folderizer-edit-title {
+.foldy-edit-title {
     font-weight: 700;
     color: var(--SmartThemeBodyColor);
 }
 
-.folderizer-create-items {
+.foldy-create-items {
     display: grid;
     gap: 0.5em;
 }
 
-.folderizer-create-items-title {
+.foldy-create-items-title {
     font-weight: 600;
     color: var(--SmartThemeBodyColor);
 }
 
-.folderizer-create-items-list {
+.foldy-create-items-list {
     display: grid;
     gap: 0.35em;
     max-height: min(18em, 45vh);
@@ -172,26 +172,26 @@
     border-radius: 6px;
 }
 
-.folderizer-create-items-list label {
+.foldy-create-items-list label {
     min-width: 0;
     align-items: center;
 }
 
-.folderizer-create-items-list span {
+.foldy-create-items-list span {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.folderizer-target-options {
+.foldy-target-options {
     display: flex;
     flex-wrap: wrap;
     gap: 0.5em 0.85em;
     min-width: 0;
 }
 
-.folderizer-edit-form .folderizer-target-option {
+.foldy-edit-form .foldy-target-option {
     display: inline-flex;
     grid-template-columns: none;
     align-items: center;
@@ -199,55 +199,55 @@
     white-space: nowrap;
 }
 
-.folderizer-edit-form .folderizer-target-option input {
+.foldy-edit-form .foldy-target-option input {
     margin: 0;
 }
 
-.folderizer-empty-hint {
+.foldy-empty-hint {
     color: var(--SmartThemeBodyColor);
     opacity: 0.75;
     padding: 0.1em 0.15em;
 }
 
-.folderizer-edit-form label,
-.folderizer-move-form label {
+.foldy-edit-form label,
+.foldy-move-form label {
     display: grid;
     grid-template-columns: 6.5em minmax(0, 1fr);
     align-items: center;
     gap: 0.75em;
 }
 
-.folderizer-edit-form label > span:first-child,
-.folderizer-move-form label > span:first-child {
+.foldy-edit-form label > span:first-child,
+.foldy-move-form label > span:first-child {
     color: var(--SmartThemeBodyColor);
     opacity: 0.9;
 }
 
-.folderizer-edit-form .folderizer-create-items-list label {
+.foldy-edit-form .foldy-create-items-list label {
     display: flex;
     grid-template-columns: none;
     gap: 0.5em;
 }
 
-.folderizer-edit-form .folderizer-create-items-list label > span:first-child {
+.foldy-edit-form .foldy-create-items-list label > span:first-child {
     opacity: 1;
 }
 
-.folderizer-edit-form input[type="text"] {
+.foldy-edit-form input[type="text"] {
     border: 1px solid var(--SmartThemeBorderColor);
     border-radius: 6px;
     background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 86%, black);
     color: var(--SmartThemeBodyColor);
 }
 
-.folderizer-edit-form input[type="text"] {
+.foldy-edit-form input[type="text"] {
     min-width: 0;
     width: 100%;
     box-sizing: border-box;
     padding: 0.45em 0.65em;
 }
 
-.folderizer-color-controls {
+.foldy-color-controls {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
@@ -255,18 +255,18 @@
     overflow: visible;
 }
 
-.folderizer-color-controls toolcool-color-picker {
+.foldy-color-controls toolcool-color-picker {
     width: 2.8em;
     height: 2.15em;
     flex: 0 0 auto;
 }
 
-.folderizer-color-reset {
+.foldy-color-reset {
     min-width: max-content;
     white-space: nowrap;
 }
 
-.folderizer-edit-form .folderizer-apply-style-all {
+.foldy-edit-form .foldy-apply-style-all {
     display: inline-flex;
     grid-template-columns: none;
     justify-self: start;
@@ -277,16 +277,16 @@
     min-height: 1.6em;
 }
 
-.folderizer-edit-form .folderizer-apply-style-all input[type="checkbox"] {
+.foldy-edit-form .foldy-apply-style-all input[type="checkbox"] {
     flex: 0 0 auto;
     margin: 0;
 }
 
-.folderizer-move-to-folder {
+.foldy-move-to-folder {
     flex: 0 0 auto;
 }
 
-#completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt .prompt_manager_prompt_controls .folderizer-move-to-folder {
+#completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt .prompt_manager_prompt_controls .foldy-move-to-folder {
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -298,11 +298,11 @@
     opacity: 0.4;
 }
 
-#completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt .prompt_manager_prompt_controls .folderizer-move-to-folder:hover {
+#completion_prompt_manager #completion_prompt_manager_list li.completion_prompt_manager_prompt .prompt_manager_prompt_controls .foldy-move-to-folder:hover {
     opacity: 1;
 }
 
-.folderizer-drop-placeholder {
+.foldy-drop-placeholder {
     min-height: 2.4em;
     width: 100%;
     border: 1px dashed var(--SmartThemeQuoteColor);
@@ -310,24 +310,24 @@
     background: color-mix(in srgb, var(--SmartThemeQuoteColor) 8%, transparent);
 }
 
-.folderizer-dropping-into-folder > .folderizer-drop-placeholder {
+.foldy-dropping-into-folder > .foldy-drop-placeholder {
     display: none;
 }
 
-.folderizer-drop-target {
+.foldy-drop-target {
     outline: 2px solid var(--SmartThemeQuoteColor);
     outline-offset: 2px;
 }
 
-.folderizer-drop-target > .folderizer-folder-items {
+.foldy-drop-target > .foldy-folder-items {
     background: color-mix(in srgb, var(--SmartThemeQuoteColor) 10%, transparent);
 }
 
-.folderizer-drop-target > .folderizer-prompt-items:empty {
+.foldy-drop-target > .foldy-prompt-items:empty {
     min-height: 3.2em;
 }
 
-.folderizer-drop-target > .folderizer-prompt-items > .folderizer-drop-placeholder {
+.foldy-drop-target > .foldy-prompt-items > .foldy-drop-placeholder {
     margin: 0.25em 0;
 }
 
@@ -339,18 +339,18 @@
     z-index: 10000;
 }
 
-.folderizer-prompt-items:empty {
+.foldy-prompt-items:empty {
     min-height: 2.4em;
 }
 
-.folderizer-lore-items:empty {
+.foldy-lore-items:empty {
     min-height: 2.4em;
 }
 
-button[hidden].folderizer-lore-create,
-button[hidden].folderizer-lore-bundle,
-button[hidden].folderizer-lore-expand-all,
-button[hidden].folderizer-lore-collapse-all {
+button[hidden].foldy-lore-create,
+button[hidden].foldy-lore-bundle,
+button[hidden].foldy-lore-expand-all,
+button[hidden].foldy-lore-collapse-all {
     display: none !important;
 }
 
@@ -363,7 +363,7 @@ button[hidden].folderizer-lore-collapse-all {
     box-sizing: border-box;
 }
 
-#completion_prompt_manager #completion_prompt_manager_list .folderizer-folder-items > li.completion_prompt_manager_prompt {
+#completion_prompt_manager #completion_prompt_manager_list .foldy-folder-items > li.completion_prompt_manager_prompt {
     margin: 0 0 0.35em;
 }
 
@@ -381,39 +381,39 @@ button[hidden].folderizer-lore-collapse-all {
     min-width: 2.5em;
 }
 
-.folderizer-lore-items > .world_entry {
+.foldy-lore-items > .world_entry {
     width: 100%;
     box-sizing: border-box;
 }
 
-.folderizer-state-toggle[data-state="mixed"] {
+.foldy-state-toggle[data-state="mixed"] {
     color: var(--SmartThemeQuoteColor);
 }
 
-.folderizer-settings .inline-drawer-content {
+.foldy-settings .inline-drawer-content {
     gap: 0.35em;
 }
 
-.folderizer-settings-clear {
+.foldy-settings-clear {
     display: grid;
     gap: 0.35em;
     margin-top: 0.6em;
 }
 
-.folderizer-settings-subtitle {
+.foldy-settings-subtitle {
     font-size: 0.9em;
     font-weight: 600;
     opacity: 0.85;
 }
 
-.folderizer-settings-hint {
+.foldy-settings-hint {
     color: var(--SmartThemeBodyColor);
     font-size: 0.85em;
     line-height: 1.35;
     opacity: 0.72;
 }
 
-.folderizer-settings-actions {
+.foldy-settings-actions {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(4.8em, 1fr));
     align-items: center;
@@ -421,7 +421,7 @@ button[hidden].folderizer-lore-collapse-all {
     width: 100%;
 }
 
-.folderizer-settings-actions .menu_button {
+.foldy-settings-actions .menu_button {
     width: 100%;
     min-width: 0;
     white-space: nowrap;
@@ -429,14 +429,14 @@ button[hidden].folderizer-lore-collapse-all {
     padding: 0.35em 0.55em;
 }
 
-.folderizer-debug-view {
+.foldy-debug-view {
     width: min(72em, 88vw);
     max-width: 100%;
     box-sizing: border-box;
     text-align: left;
 }
 
-.folderizer-debug-view pre {
+.foldy-debug-view pre {
     max-height: min(32em, 68vh);
     overflow: auto;
     white-space: pre-wrap;
@@ -454,17 +454,17 @@ button[hidden].folderizer-lore-collapse-all {
     box-sizing: border-box;
 }
 
-.folderizer-diagnostics-view {
+.foldy-diagnostics-view {
     display: grid;
     gap: 0.5em;
 }
 
-.folderizer-diagnostics-actions {
+.foldy-diagnostics-actions {
     display: flex;
     justify-content: flex-end;
 }
 
-.folderizer-diagnostics-actions .menu_button {
+.foldy-diagnostics-actions .menu_button {
     width: auto;
     min-width: max-content;
     white-space: nowrap;
@@ -472,52 +472,52 @@ button[hidden].folderizer-lore-collapse-all {
     overflow-wrap: normal;
 }
 
-.folderizer-debug-copy {
+.foldy-debug-copy {
     width: min(72em, 88vw);
     height: min(32em, 68vh);
     box-sizing: border-box;
 }
 
-.folderizer-regex-root .regex-script-label {
+.foldy-regex-root .regex-script-label {
     width: 100%;
 }
 
-.folderizer-searching .folderizer-drag,
-.folderizer-searching .drag-handle {
+.foldy-searching .foldy-drag,
+.foldy-searching .drag-handle {
     pointer-events: none;
     opacity: 0.35;
 }
 
 @media (max-width: 700px) {
-    .folderizer-toolbar {
+    .foldy-toolbar {
         justify-content: flex-end;
         gap: 0.35em;
     }
 
-    .folderizer-folder-header {
+    .foldy-folder-header {
         grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
     }
 
-    .folderizer-folder-header.has-state-toggle {
+    .foldy-folder-header.has-state-toggle {
         grid-template-columns: auto auto auto minmax(0, 1fr) auto auto auto;
     }
 
-    .folderizer-edit-form label,
-    .folderizer-move-form label {
+    .foldy-edit-form label,
+    .foldy-move-form label {
         grid-template-columns: 1fr;
         gap: 0.35em;
     }
 
-    .folderizer-color-controls {
+    .foldy-color-controls {
         grid-template-columns: auto minmax(0, 1fr);
     }
 
-    .folderizer-color-reset {
+    .foldy-color-reset {
         grid-column: 2;
         justify-self: start;
     }
 
-    .folderizer-settings-actions {
+    .foldy-settings-actions {
         grid-template-columns: repeat(auto-fit, minmax(4.8em, 1fr));
     }
 }
