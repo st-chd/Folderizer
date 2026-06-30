@@ -27,7 +27,7 @@ import {
     SCRIPT_TYPES,
 } from '../../regex/engine.js';
 import {
-    FOLDERIZER_VERSION,
+    FOLDY_VERSION,
     flattenLayout,
     generateUUID,
     hasDuplicateFolderName,
@@ -36,13 +36,17 @@ import {
     removeFolder,
 } from './model.js';
 
-const EXTENSION_NAME = 'Folderizer';
-const LORE_SORT_VALUE = 'folderizer';
+const EXTENSION_NAME = 'Foldy';
+const LORE_SORT_VALUE = 'foldy';
+const LEGACY_KEY = ['folder', 'izer'].join('');
+const SETTINGS_KEY = 'foldy';
+const LEGACY_LORE_SORT_VALUE = LEGACY_KEY;
 const DEFAULT_PICKER_COLOR = '#7c6ee6';
-const BUNDLE_KIND = 'folderizer-bundle';
+const BUNDLE_KIND = 'foldy-bundle';
+const LEGACY_BUNDLE_KIND = `${LEGACY_KEY}-bundle`;
 const BUNDLE_VERSION = 1;
 const DEBUG_LOG_LIMIT = 200;
-const FOLDERIZER_SOURCE_PATTERN = /(?:^|[\\/])Folderizer[\\/](?:index|model)\.js(?:[?#][^\s)]*)?/i;
+const FOLDY_SOURCE_PATTERN = /(?:^|[\\/])Foldy[\\/](?:index|model)\.js(?:[?#][^\s)]*)?/i;
 
 const REGEX_TYPES = {
     global: {
@@ -85,8 +89,11 @@ let slashCommandsRegistered = false;
 const debugLogEntries = [];
 
 function settings() {
-    extension_settings.folderizer ??= {};
-    const value = extension_settings.folderizer;
+    if (!extension_settings[SETTINGS_KEY] && extension_settings[LEGACY_KEY]) {
+        extension_settings[SETTINGS_KEY] = extension_settings[LEGACY_KEY];
+    }
+    extension_settings[SETTINGS_KEY] ??= {};
+    const value = extension_settings[SETTINGS_KEY];
     value.features ??= { prompts: true, lorebooks: true, regex: true };
     value.features.prompts ??= true;
     value.features.lorebooks ??= true;
@@ -136,13 +143,13 @@ function debugLog(level, message, detail = null) {
 function debugText() {
     const state = settings();
     const header = [
-        `Folderizer ${state.debug ? 'debug on' : 'debug off'}`,
+        `Foldy ${state.debug ? 'debug on' : 'debug off'}`,
         `time: ${new Date().toLocaleString()}`,
         `features: prompts=${featureEnabled('prompts')}, lorebooks=${featureEnabled('lorebooks')}, regex=${featureEnabled('regex')}`,
         'userAgent:',
         navigator.userAgent,
     ].join('\n');
-    if (!debugLogEntries.length) return `${header}\n\n아직 기록된 Folderizer 디버그 로그가 없습니다.`;
+    if (!debugLogEntries.length) return `${header}\n\n아직 기록된 Foldy 디버그 로그가 없습니다.`;
     const body = debugLogEntries.map(entry => {
         const detail = entry.detail ? `\n${entry.detail}` : '';
         return `[${entry.time}] [${entry.level.toUpperCase()}] ${entry.message}${detail}`;
@@ -154,23 +161,23 @@ async function copyDebugLog() {
     const text = debugText();
     try {
         await navigator.clipboard.writeText(text);
-        toastr.success('Folderizer 디버그 로그를 복사했습니다.');
+        toastr.success('Foldy 디버그 로그를 복사했습니다.');
     } catch (error) {
         console.error(`[${EXTENSION_NAME}] Failed to copy debug log`, error);
         const area = document.createElement('textarea');
-        area.className = 'folderizer-debug-copy';
+        area.className = 'foldy-debug-copy';
         area.value = text;
-        await new Popup(area, POPUP_TYPE.TEXT, 'Folderizer 디버그 로그').show();
+        await new Popup(area, POPUP_TYPE.TEXT, 'Foldy 디버그 로그').show();
     }
 }
 
 async function showDebugLog() {
     const wrap = document.createElement('div');
-    wrap.className = 'folderizer-debug-view';
+    wrap.className = 'foldy-debug-view';
     const pre = document.createElement('pre');
     pre.textContent = debugText();
     wrap.append(pre);
-    await new Popup(wrap, POPUP_TYPE.TEXT, 'Folderizer 디버그 로그', {
+    await new Popup(wrap, POPUP_TYPE.TEXT, 'Foldy 디버그 로그', {
         wide: true,
         large: true,
     }).show();
@@ -179,24 +186,24 @@ async function showDebugLog() {
 function domFolderDiagnostics(rootSelector) {
     const root = document.querySelector(rootSelector);
     if (!root) return { rendered: false };
-    const folders = [...root.querySelectorAll('.folderizer-folder')];
-    const items = [...root.querySelectorAll('.folderizer-folder-items > *')];
+    const folders = [...root.querySelectorAll('.foldy-folder')];
+    const items = [...root.querySelectorAll('.foldy-folder-items > *')];
     return {
         rendered: true,
         folders: folders.length,
         collapsed: folders.filter(element => element.classList.contains('is-collapsed')).length,
         folderItems: items.length,
         samples: folders.slice(0, 10).map(element => {
-            const name = element.querySelector('.folderizer-folder-name');
+            const name = element.querySelector('.foldy-folder-name');
             const style = getComputedStyle(element);
             const nameStyle = name ? getComputedStyle(name) : null;
             return {
-                id: element.dataset.folderizerId,
+                id: element.dataset.foldyId,
                 nameLength: name?.textContent?.length ?? 0,
                 cssBackground: style.backgroundColor,
                 cssBorder: style.borderColor,
                 cssName: nameStyle?.color ?? '',
-                itemCount: element.querySelector('.folderizer-folder-items')?.children.length ?? 0,
+                itemCount: element.querySelector('.foldy-folder-items')?.children.length ?? 0,
             };
         }),
     };
@@ -240,10 +247,10 @@ function layoutDiagnostics(layout, validIds = [], collapsed = new Set()) {
     };
 }
 
-async function folderizerDiagnosticText() {
+async function foldyDiagnosticText() {
     const state = settings();
     const report = {
-        title: 'Folderizer 현재 상태 진단',
+        title: 'Foldy 현재 상태 진단',
         time: new Date().toLocaleString(),
         debugMode: debugEnabled(),
         features: {
@@ -317,13 +324,13 @@ async function folderizerDiagnosticText() {
     return JSON.stringify(report, null, 2);
 }
 
-async function showFolderizerDebugger() {
-    const text = await folderizerDiagnosticText();
+async function showFoldyDebugger() {
+    const text = await foldyDiagnosticText();
     const wrap = document.createElement('div');
-    wrap.className = 'folderizer-debug-view folderizer-diagnostics-view';
+    wrap.className = 'foldy-debug-view foldy-diagnostics-view';
 
     const actions = document.createElement('div');
-    actions.className = 'folderizer-diagnostics-actions';
+    actions.className = 'foldy-diagnostics-actions';
     const copy = document.createElement('button');
     copy.type = 'button';
     copy.className = 'menu_button';
@@ -331,7 +338,7 @@ async function showFolderizerDebugger() {
     copy.addEventListener('click', async () => {
         try {
             await navigator.clipboard.writeText(text);
-            toastr.success('Folderizer 진단 결과를 복사했습니다.');
+            toastr.success('Foldy 진단 결과를 복사했습니다.');
         } catch (error) {
             console.error(`[${EXTENSION_NAME}] Failed to copy diagnostics`, error);
             toastr.error('진단 결과를 복사하지 못했습니다.');
@@ -342,7 +349,7 @@ async function showFolderizerDebugger() {
     const pre = document.createElement('pre');
     pre.textContent = text;
     wrap.append(actions, pre);
-    await new Popup(wrap, POPUP_TYPE.TEXT, 'Folderizer 진단 결과', {
+    await new Popup(wrap, POPUP_TYPE.TEXT, 'Foldy 진단 결과', {
         wide: true,
         large: true,
     }).show();
@@ -352,13 +359,13 @@ function registerSlashCommands() {
     if (slashCommandsRegistered) return;
     slashCommandsRegistered = true;
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-        name: 'Folderizer-debugger',
-        aliases: ['folderizer-debugger', 'folderizer-debug'],
+        name: 'Foldy-debugger',
+        aliases: ['foldy-debugger', 'foldy-debug'],
         callback: async () => {
-            await showFolderizerDebugger();
+            await showFoldyDebugger();
             return '';
         },
-        helpString: '현재 Folderizer 상태 진단 결과를 복사 가능한 팝업으로 표시합니다.',
+        helpString: '현재 Foldy 상태 진단 결과를 복사 가능한 팝업으로 표시합니다.',
     }));
 }
 
@@ -367,7 +374,7 @@ function installDebugListeners() {
     debugListenersInstalled = true;
     window.addEventListener('error', event => {
         if (!debugEnabled()) return;
-        if (!isFolderizerErrorSource(event.filename, event.error?.stack)) return;
+        if (!isFoldyErrorSource(event.filename, event.error?.stack)) return;
         debugLog('error', '브라우저 오류', {
             message: event.message,
             source: event.filename,
@@ -378,16 +385,16 @@ function installDebugListeners() {
     });
     window.addEventListener('unhandledrejection', event => {
         if (!debugEnabled()) return;
-        if (!isFolderizerErrorSource(event.reason?.stack, event.reason?.message, event.reason)) return;
+        if (!isFoldyErrorSource(event.reason?.stack, event.reason?.message, event.reason)) return;
         debugLog('error', '처리되지 않은 Promise 오류', event.reason);
     });
 }
 
-function isFolderizerErrorSource(...values) {
+function isFoldyErrorSource(...values) {
     return values
         .filter(Boolean)
         .map(value => String(value))
-        .some(value => FOLDERIZER_SOURCE_PATTERN.test(value));
+        .some(value => FOLDY_SOURCE_PATTERN.test(value));
 }
 
 function featureEnabled(name) {
@@ -435,6 +442,15 @@ function selectedLorebookName() {
     return world_names?.[value] || String($('#world_editor_select').find(':selected').text() ?? '').trim();
 }
 
+function storedLoreSortValue() {
+    const value = accountStorage.getItem(SORT_ORDER_KEY);
+    if (value === LEGACY_LORE_SORT_VALUE) {
+        accountStorage.setItem(SORT_ORDER_KEY, LORE_SORT_VALUE);
+        return LORE_SORT_VALUE;
+    }
+    return value;
+}
+
 function regexOwnerKey(typeKey) {
     if (typeKey === 'global') return 'global';
     if (typeKey === 'scoped') {
@@ -463,7 +479,7 @@ function createIconButton(icon, title, className = '') {
 function createIconCodeButton(code, title, className = '') {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = `menu_button fa-solid folderizer-code-icon ${className}`.trim();
+    button.className = `menu_button fa-solid foldy-code-icon ${className}`.trim();
     button.title = title;
     button.setAttribute('aria-label', title);
     button.textContent = String.fromCodePoint(parseInt(code, 16));
@@ -473,7 +489,7 @@ function createIconCodeButton(code, title, className = '') {
 function createLabeledIconButton(icon, title, label, className = '') {
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = `menu_button folderizer-labeled-button ${className}`.trim();
+    button.className = `menu_button foldy-labeled-button ${className}`.trim();
     button.title = title;
     button.setAttribute('aria-label', title);
     const iconElement = document.createElement('span');
@@ -539,13 +555,13 @@ function themeColorHex(variableName, fallback = DEFAULT_PICKER_COLOR) {
 
 function createColorSetting(labelText, initialValue, pickerFallback = DEFAULT_PICKER_COLOR) {
     const field = document.createElement('label');
-    field.className = 'folderizer-color-field';
+    field.className = 'foldy-color-field';
 
     const label = document.createElement('span');
     label.textContent = labelText;
 
     const controls = document.createElement('span');
-    controls.className = 'folderizer-color-controls';
+    controls.className = 'foldy-color-controls';
 
     const picker = document.createElement('toolcool-color-picker');
     picker.setAttribute('color', pickerColor(initialValue, pickerFallback));
@@ -557,7 +573,7 @@ function createColorSetting(labelText, initialValue, pickerFallback = DEFAULT_PI
     hex.spellcheck = false;
 
     const reset = document.createElement('button');
-    reset.className = 'menu_button folderizer-color-reset';
+    reset.className = 'menu_button foldy-color-reset';
     reset.type = 'button';
     reset.textContent = '기본값';
     reset.title = '테마 기본값으로 되돌리기';
@@ -608,8 +624,8 @@ function applyFolderStyleToAll(layout, sourceFolderId, style) {
 }
 
 function updateFolderCount(folderElement) {
-    const count = folderElement.querySelector('.folderizer-folder-items')?.children.length ?? 0;
-    const countElement = folderElement.querySelector('.folderizer-folder-count');
+    const count = folderElement.querySelector('.foldy-folder-items')?.children.length ?? 0;
+    const countElement = folderElement.querySelector('.foldy-folder-count');
     if (countElement) countElement.textContent = String(count);
 }
 
@@ -631,28 +647,28 @@ function setStateButtonIcon(button, state) {
 
 function createFolderElement(folder, { kind, owner, collapsed, onEdit, onDelete, onStateToggle, state = null }) {
     const element = document.createElement(kind === 'regex' ? 'div' : 'li');
-    element.className = `folderizer-folder folderizer-${kind}-folder`;
-    element.dataset.folderizerId = folder.id;
+    element.className = `foldy-folder foldy-${kind}-folder`;
+    element.dataset.foldyId = folder.id;
     const backgroundColor = normalizeColor(folder.color);
     const borderColor = normalizeColor(folder.borderColor);
-    if (backgroundColor) element.style.setProperty('--folderizer-background-color', backgroundColor);
-    if (borderColor) element.style.setProperty('--folderizer-border-color', borderColor);
-    element.style.setProperty('--folderizer-name-color', normalizeColor(folder.nameColor) || 'var(--SmartThemeBodyColor)');
+    if (backgroundColor) element.style.setProperty('--foldy-background-color', backgroundColor);
+    if (borderColor) element.style.setProperty('--foldy-border-color', borderColor);
+    element.style.setProperty('--foldy-name-color', normalizeColor(folder.nameColor) || 'var(--SmartThemeBodyColor)');
 
     const header = document.createElement('div');
-    header.className = 'folderizer-folder-header';
+    header.className = 'foldy-folder-header';
 
     const drag = document.createElement('span');
-    drag.className = 'folderizer-drag drag-handle fa-solid fa-bars';
+    drag.className = 'foldy-drag drag-handle fa-solid fa-bars';
     drag.title = '폴더 이동';
 
     const name = document.createElement('span');
-    name.className = 'folderizer-folder-name';
+    name.className = 'foldy-folder-name';
     name.textContent = folder.name;
     name.title = folder.name;
 
     const count = document.createElement('span');
-    count.className = 'folderizer-folder-count';
+    count.className = 'foldy-folder-count';
     count.textContent = String(folder.items.length);
 
     const edit = createIconButton('fa-pencil', '폴더 편집');
@@ -662,9 +678,9 @@ function createFolderElement(folder, { kind, owner, collapsed, onEdit, onDelete,
     remove.addEventListener('click', () => onDelete(folder.id));
 
     const collapse = createIconButton('fa-chevron-down', '폴더 접기');
-    collapse.classList.add('folderizer-collapse-toggle');
+    collapse.classList.add('foldy-collapse-toggle');
     const items = document.createElement(kind === 'regex' ? 'div' : 'ul');
-    items.className = `folderizer-folder-items folderizer-${kind}-items`;
+    items.className = `foldy-folder-items foldy-${kind}-items`;
 
     if (collapsed.has(folder.id)) {
         element.classList.add('is-collapsed');
@@ -685,7 +701,7 @@ function createFolderElement(folder, { kind, owner, collapsed, onEdit, onDelete,
     header.append(drag, collapse);
     if (onStateToggle) {
         header.classList.add('has-state-toggle');
-        const stateButton = createIconButton('fa-toggle-off', '폴더 항목 켜기/끄기', 'folderizer-state-toggle');
+        const stateButton = createIconButton('fa-toggle-off', '폴더 항목 켜기/끄기', 'foldy-state-toggle');
         setStateButtonIcon(stateButton, state);
         stateButton.addEventListener('click', async event => {
             event.preventDefault();
@@ -717,10 +733,10 @@ async function requestFolderName(layout, currentName = '', currentId = null) {
 
 async function requestNewFolder(layout, candidates = []) {
     const form = document.createElement('div');
-    form.className = 'folderizer-edit-form folderizer-create-form';
+    form.className = 'foldy-edit-form foldy-create-form';
 
     const title = document.createElement('div');
-    title.className = 'folderizer-edit-title';
+    title.className = 'foldy-edit-title';
     title.textContent = '새 폴더';
 
     const nameInput = document.createElement('input');
@@ -729,7 +745,7 @@ async function requestNewFolder(layout, candidates = []) {
     nameInput.autofocus = true;
 
     const nameField = document.createElement('label');
-    nameField.className = 'folderizer-text-field';
+    nameField.className = 'foldy-text-field';
     const nameLabel = document.createElement('span');
     nameLabel.textContent = '이름';
     nameField.append(nameLabel, nameInput);
@@ -739,12 +755,12 @@ async function requestNewFolder(layout, candidates = []) {
     const selectable = candidates.filter(candidate => candidate?.id && candidate?.label);
     if (selectable.length) {
         const group = document.createElement('div');
-        group.className = 'folderizer-create-items';
+        group.className = 'foldy-create-items';
         const groupTitle = document.createElement('div');
-        groupTitle.className = 'folderizer-create-items-title';
+        groupTitle.className = 'foldy-create-items-title';
         groupTitle.textContent = '폴더에 넣을 항목';
         const list = document.createElement('div');
-        list.className = 'folderizer-create-items-list';
+        list.className = 'foldy-create-items-list';
         selectable.forEach(candidate => {
             const label = document.createElement('label');
             label.className = 'checkbox flex-container';
@@ -780,7 +796,7 @@ async function requestNewFolder(layout, candidates = []) {
     });
     const result = await popup.show();
     if (result !== POPUP_RESULT.AFFIRMATIVE) return null;
-    const itemIds = [...form.querySelectorAll('.folderizer-create-items input[type="checkbox"]:checked')]
+    const itemIds = [...form.querySelectorAll('.foldy-create-items input[type="checkbox"]:checked')]
         .map(input => String(input.value));
     return { name: nameInput.value.trim(), itemIds };
 }
@@ -799,24 +815,24 @@ function regexFolderCreateContext(typeKey) {
 
 async function requestNewRegexFolder(defaultTypeKey = 'global') {
     const form = document.createElement('div');
-    form.className = 'folderizer-edit-form folderizer-create-form';
+    form.className = 'foldy-edit-form foldy-create-form';
 
     const title = document.createElement('div');
-    title.className = 'folderizer-edit-title';
+    title.className = 'foldy-edit-title';
     title.textContent = '새 폴더';
 
     const targetField = document.createElement('label');
-    targetField.className = 'folderizer-text-field folderizer-target-field';
+    targetField.className = 'foldy-text-field foldy-target-field';
     const targetLabel = document.createElement('span');
     targetLabel.textContent = '대상';
     const targetControls = document.createElement('span');
-    targetControls.className = 'folderizer-target-options';
+    targetControls.className = 'foldy-target-options';
     REGEX_FOLDER_TARGETS.forEach(target => {
         const option = document.createElement('label');
-        option.className = 'checkbox flex-container folderizer-target-option';
+        option.className = 'checkbox flex-container foldy-target-option';
         const input = document.createElement('input');
         input.type = 'radio';
-        input.name = 'folderizer_regex_folder_target';
+        input.name = 'foldy_regex_folder_target';
         input.value = target.key;
         input.checked = target.key === defaultTypeKey;
         const text = document.createElement('span');
@@ -832,27 +848,27 @@ async function requestNewRegexFolder(defaultTypeKey = 'global') {
     nameInput.autofocus = true;
 
     const nameField = document.createElement('label');
-    nameField.className = 'folderizer-text-field';
+    nameField.className = 'foldy-text-field';
     const nameLabel = document.createElement('span');
     nameLabel.textContent = '이름';
     nameField.append(nameLabel, nameInput);
 
     const group = document.createElement('div');
-    group.className = 'folderizer-create-items';
+    group.className = 'foldy-create-items';
     const groupTitle = document.createElement('div');
-    groupTitle.className = 'folderizer-create-items-title';
+    groupTitle.className = 'foldy-create-items-title';
     groupTitle.textContent = '폴더에 넣을 항목';
     const list = document.createElement('div');
-    list.className = 'folderizer-create-items-list';
+    list.className = 'foldy-create-items-list';
     group.append(groupTitle, list);
 
-    const selectedTypeKey = () => form.querySelector('input[name="folderizer_regex_folder_target"]:checked')?.value || 'global';
+    const selectedTypeKey = () => form.querySelector('input[name="foldy_regex_folder_target"]:checked')?.value || 'global';
     const renderCandidates = () => {
         list.innerHTML = '';
         const { candidates } = regexFolderCreateContext(selectedTypeKey());
         if (!candidates.length) {
             const empty = document.createElement('div');
-            empty.className = 'folderizer-empty-hint';
+            empty.className = 'foldy-empty-hint';
             empty.textContent = '폴더에 넣을 수 있는 루트 항목이 없습니다.';
             list.append(empty);
             return;
@@ -896,17 +912,17 @@ async function requestNewRegexFolder(defaultTypeKey = 'global') {
     const result = await popup.show();
     if (result !== POPUP_RESULT.AFFIRMATIVE) return null;
     const typeKey = selectedTypeKey();
-    const itemIds = [...form.querySelectorAll('.folderizer-create-items input[type="checkbox"]:checked')]
+    const itemIds = [...form.querySelectorAll('.foldy-create-items input[type="checkbox"]:checked')]
         .map(input => String(input.value));
     return { typeKey, name: nameInput.value.trim(), itemIds };
 }
 
 async function requestFolderSettings(layout, folder) {
     const form = document.createElement('div');
-    form.className = 'folderizer-edit-form folderizer-folder-settings-form';
+    form.className = 'foldy-edit-form foldy-folder-settings-form';
 
     const title = document.createElement('div');
-    title.className = 'folderizer-edit-title';
+    title.className = 'foldy-edit-title';
     title.textContent = '폴더 설정';
 
     const nameInput = document.createElement('input');
@@ -916,7 +932,7 @@ async function requestFolderSettings(layout, folder) {
     nameInput.autofocus = true;
 
     const nameField = document.createElement('label');
-    nameField.className = 'folderizer-text-field';
+    nameField.className = 'foldy-text-field';
     const nameLabel = document.createElement('span');
     nameLabel.textContent = '이름';
     nameField.append(nameLabel, nameInput);
@@ -926,7 +942,7 @@ async function requestFolderSettings(layout, folder) {
     const nameColor = createColorSetting('이름 색상', folder.nameColor, themeColorHex('--SmartThemeBodyColor', '#ffffff'));
 
     const applyAllField = document.createElement('label');
-    applyAllField.className = 'checkbox flex-container folderizer-apply-style-all';
+    applyAllField.className = 'checkbox flex-container foldy-apply-style-all';
     const applyAllCheckbox = document.createElement('input');
     applyAllCheckbox.type = 'checkbox';
     const applyAllText = document.createElement('span');
@@ -978,10 +994,10 @@ async function requestMoveTarget(layout, itemId) {
     const currentFolder = layout.folders.find(folder => folder.items.includes(String(itemId)));
     const currentValue = currentFolder?.id ?? '';
     const form = document.createElement('div');
-    form.className = 'folderizer-move-form';
+    form.className = 'foldy-move-form';
 
     const title = document.createElement('div');
-    title.className = 'folderizer-edit-title';
+    title.className = 'foldy-edit-title';
     title.textContent = '폴더로 이동';
 
     const label = document.createElement('label');
@@ -1061,11 +1077,11 @@ function collapseNewFolder(kind, owner, folderId) {
 }
 
 function attachMoveToFolderButton(element, { kind, layout, itemId, onMove }) {
-    if (!element || element.querySelector(':scope .folderizer-move-to-folder') || !layout.folders.length) return;
+    if (!element || element.querySelector(':scope .foldy-move-to-folder') || !layout.folders.length) return;
     const title = '폴더로 이동';
-    const button = kind === 'prompt' ? document.createElement('span') : createIconButton('fa-folder-open', title, 'folderizer-move-to-folder');
+    const button = kind === 'prompt' ? document.createElement('span') : createIconButton('fa-folder-open', title, 'foldy-move-to-folder');
     if (kind === 'prompt') {
-        button.className = 'fa-solid fa-folder-open folderizer-move-to-folder';
+        button.className = 'fa-solid fa-folder-open foldy-move-to-folder';
         button.title = title;
         button.setAttribute('aria-label', title);
     }
@@ -1099,12 +1115,12 @@ function attachMoveToFolderButton(element, { kind, layout, itemId, onMove }) {
 
 function ensureToolbar(parent, key, onCreate, extra = []) {
     if (!parent) return;
-    parent.querySelector(`.folderizer-toolbar[data-folderizer-toolbar="${key}"]`)?.remove();
+    parent.querySelector(`.foldy-toolbar[data-foldy-toolbar="${key}"]`)?.remove();
     const toolbar = document.createElement('div');
-    toolbar.className = 'folderizer-toolbar';
-    toolbar.dataset.folderizerToolbar = key;
+    toolbar.className = 'foldy-toolbar';
+    toolbar.dataset.foldyToolbar = key;
     if (onCreate) {
-        const create = createLabeledIconButton('fa-folder-plus', '새 폴더', '새 폴더', 'folderizer-create-folder');
+        const create = createLabeledIconButton('fa-folder-plus', '새 폴더', '새 폴더', 'foldy-create-folder');
         create.addEventListener('click', onCreate);
         toolbar.append(create);
     }
@@ -1165,7 +1181,7 @@ async function readJsonFile() {
             } catch (error) {
                 console.error(`[${EXTENSION_NAME}] Failed to read bundle`, error);
                 debugLog('error', '번들 파일 읽기 실패', error);
-                toastr.error('Folderizer 번들을 읽을 수 없습니다.');
+                toastr.error('Foldy 번들을 읽을 수 없습니다.');
                 settle(null);
             }
         }, { once: true });
@@ -1174,16 +1190,16 @@ async function readJsonFile() {
 }
 
 function assertBundle(bundle, scope) {
-    if (bundle?.kind !== BUNDLE_KIND || bundle?.scope !== scope) {
-        toastr.error('현재 항목에 맞는 Folderizer 번들이 아닙니다.');
+    if (![BUNDLE_KIND, LEGACY_BUNDLE_KIND].includes(bundle?.kind) || bundle?.scope !== scope) {
+        toastr.error('현재 항목에 맞는 Foldy 번들이 아닙니다.');
         return false;
     }
     if (bundle.version > BUNDLE_VERSION) {
-        toastr.error('이 Folderizer 번들은 더 새로운 버전에서 만들어졌습니다.');
+        toastr.error('이 Foldy 번들은 더 새로운 버전에서 만들어졌습니다.');
         return false;
     }
     if (bundle.version !== BUNDLE_VERSION) {
-        toastr.error('지원하지 않는 Folderizer 번들 버전입니다.');
+        toastr.error('지원하지 않는 Foldy 번들 버전입니다.');
         return false;
     }
     return true;
@@ -1200,7 +1216,7 @@ function remapImportedLayout(layout, itemIdMap) {
     const sourceFolders = (layout?.folders || []).filter(folder => rootedFolderIds.has(folder.id));
     const folderIdMap = new Map(sourceFolders.map(folder => [folder.id, generateUUID()]));
     return {
-        version: FOLDERIZER_VERSION,
+        version: FOLDY_VERSION,
         root: (layout?.root || []).map(node => {
             if (node.type === 'folder') return { type: 'folder', id: folderIdMap.get(node.id) };
             return { type: 'item', id: itemIdMap.get(String(node.id)) };
@@ -1216,7 +1232,7 @@ function remapImportedLayout(layout, itemIdMap) {
 function removeItemsFromLayout(layout, itemIds) {
     const ids = new Set(itemIds);
     return {
-        version: FOLDERIZER_VERSION,
+        version: FOLDY_VERSION,
         root: (layout.root || []).filter(node => node.type !== 'item' || !ids.has(String(node.id))),
         folders: (layout.folders || []).map(folder => ({
             ...folder,
@@ -1229,7 +1245,7 @@ function mergeImportedLayout(currentLayout, importedLayout, allIds) {
     const importedIds = flattenLayout(importedLayout);
     const baseLayout = removeItemsFromLayout(currentLayout, importedIds);
     return normalizeLayout({
-        version: FOLDERIZER_VERSION,
+        version: FOLDY_VERSION,
         root: [...importedLayout.root, ...baseLayout.root],
         folders: [...importedLayout.folders, ...baseLayout.folders],
     }, allIds);
@@ -1291,8 +1307,8 @@ function createLoreCollapseButtons() {
         saveCollapsed('lore', name, collapsed);
         queueLoreRender();
     };
-    const expandAll = createIconButton('fa-folder-open', '모두 펼치기', 'folderizer-lore-expand-all');
-    const collapseAll = createIconButton('fa-folder', '모두 접기', 'folderizer-lore-collapse-all');
+    const expandAll = createIconButton('fa-folder-open', '모두 펼치기', 'foldy-lore-expand-all');
+    const collapseAll = createIconButton('fa-folder', '모두 접기', 'foldy-lore-collapse-all');
     collapseAll.addEventListener('click', event => {
         event.preventDefault();
         event.stopPropagation();
@@ -1342,17 +1358,17 @@ function ensurePromptOrder(manager = promptManager) {
 
 async function requestPromptExportMode() {
     const form = document.createElement('div');
-    form.className = 'folderizer-export-form';
+    form.className = 'foldy-export-form';
 
     const title = document.createElement('div');
-    title.className = 'folderizer-edit-title';
+    title.className = 'foldy-edit-title';
     title.textContent = '프롬프트 내보내기';
 
     const full = document.createElement('label');
     full.className = 'checkbox flex-container';
     const fullInput = document.createElement('input');
     fullInput.type = 'radio';
-    fullInput.name = 'folderizer_prompt_export_mode';
+    fullInput.name = 'foldy_prompt_export_mode';
     fullInput.value = 'full';
     fullInput.checked = true;
     const fullText = document.createElement('span');
@@ -1363,14 +1379,14 @@ async function requestPromptExportMode() {
     layoutOnly.className = 'checkbox flex-container';
     const layoutInput = document.createElement('input');
     layoutInput.type = 'radio';
-    layoutInput.name = 'folderizer_prompt_export_mode';
+    layoutInput.name = 'foldy_prompt_export_mode';
     layoutInput.value = 'layout';
     const layoutText = document.createElement('span');
     layoutText.textContent = '폴더 구조만';
     layoutOnly.append(layoutInput, layoutText);
 
     const hint = document.createElement('div');
-    hint.className = 'folderizer-export-hint';
+    hint.className = 'foldy-export-hint';
     hint.textContent = '구조만 내보내면 불러올 때 현재 프리셋의 프롬프트 내용은 그대로 두고 폴더 배치만 적용합니다.';
 
     form.append(title, full, layoutOnly, hint);
@@ -1379,7 +1395,7 @@ async function requestPromptExportMode() {
         cancelButton: '취소',
     }).show();
     if (result !== POPUP_RESULT.AFFIRMATIVE) return null;
-    return form.querySelector('input[name="folderizer_prompt_export_mode"]:checked')?.value || 'full';
+    return form.querySelector('input[name="foldy_prompt_export_mode"]:checked')?.value || 'full';
 }
 
 function promptLayoutRefs(manager, ids) {
@@ -1399,7 +1415,7 @@ function promptLayoutOnlyBundle(bundle) {
 
 async function importPromptLayoutBundle(bundle, manager = promptManager) {
     if (!bundle?.layout) {
-        toastr.error('Folderizer 프롬프트 구조 번들에 폴더 구조가 없습니다.');
+        toastr.error('Foldy 프롬프트 구조 번들에 폴더 구조가 없습니다.');
         return;
     }
     const currentPreset = promptExportName();
@@ -1439,7 +1455,7 @@ async function importPromptLayoutBundle(bundle, manager = promptManager) {
     saveSettingsDebounced();
     await persistPromptLayout(owner, layout, manager);
     manager.render(false);
-    toastr.success('Folderizer 프롬프트 폴더 구조를 불러왔습니다.');
+    toastr.success('Foldy 프롬프트 폴더 구조를 불러왔습니다.');
 }
 
 async function exportPromptBundle(manager = promptManager) {
@@ -1467,7 +1483,7 @@ async function exportPromptBundle(manager = promptManager) {
             layout: cloneJson(layout),
             promptRefs: promptLayoutRefs(manager, [...ids]),
         }, bundleFilename(`${presetName}-folders`));
-        toastr.success('Folderizer 프롬프트 폴더 구조를 내보냈습니다.');
+        toastr.success('Foldy 프롬프트 폴더 구조를 내보냈습니다.');
         return;
     }
 
@@ -1489,7 +1505,7 @@ async function exportPromptBundle(manager = promptManager) {
         prompts,
         promptOrder,
     }, bundleFilename(presetName));
-    toastr.success('Folderizer 프롬프트 번들을 내보냈습니다.');
+    toastr.success('Foldy 프롬프트 번들을 내보냈습니다.');
 }
 
 async function importPromptBundle(manager = promptManager) {
@@ -1500,19 +1516,19 @@ async function importPromptBundle(manager = promptManager) {
         return;
     }
     if (!Array.isArray(bundle.prompts) || !Array.isArray(bundle.promptOrder)) {
-        toastr.error('Folderizer 프롬프트 번들에 프롬프트 데이터가 없습니다.');
+        toastr.error('Foldy 프롬프트 번들에 프롬프트 데이터가 없습니다.');
         return;
     }
     const presetManager = promptPresetManager();
     const presetName = promptBundlePresetName(bundle);
     if (!presetName) {
-        toastr.error('Folderizer 프롬프트 번들에 프리셋 이름이 없습니다.');
+        toastr.error('Foldy 프롬프트 번들에 프리셋 이름이 없습니다.');
         return;
     }
     const exists = presetManager?.getAllPresets?.().includes(presetName);
     const confirmed = await Popup.show.confirm('프롬프트 번들 불러오기', exists
-        ? `기존 프롬프트 프리셋 "${presetName}"을 이 Folderizer 번들로 덮어쓸까요?`
-        : `이 Folderizer 번들로 새 프롬프트 프리셋 "${presetName}"을 만들까요?`);
+        ? `기존 프롬프트 프리셋 "${presetName}"을 이 Foldy 번들로 덮어쓸까요?`
+        : `이 Foldy 번들로 새 프롬프트 프리셋 "${presetName}"을 만들까요?`);
     if (!confirmed) return;
 
     const presetSettings = cloneJson(bundle.presetSettings || presetManager?.getPresetSettings?.(presetName) || {});
@@ -1549,7 +1565,7 @@ async function importPromptBundle(manager = promptManager) {
 
     const owner = promptOwnerKeyForName(presetName);
     const currentIds = exists ? promptOrderIds(manager) : [];
-    // Imports may reuse existing prompts, but the Folderizer layout itself comes from the bundle.
+    // Imports may reuse existing prompts, but the Foldy layout itself comes from the bundle.
     const currentLayout = normalizeLayout(null, currentIds);
     const importedLayout = remapImportedLayout(bundle.layout, idMap);
     const allIds = [...new Set([...currentIds, ...idMap.values()])];
@@ -1567,7 +1583,7 @@ async function importPromptBundle(manager = promptManager) {
     saveSettingsDebounced();
     await manager.saveServiceSettings();
     manager.render(false);
-    toastr.success('Folderizer 프롬프트 번들을 불러왔습니다.');
+    toastr.success('Foldy 프롬프트 번들을 불러왔습니다.');
 }
 
 function promptLayoutFromDom(list, sourceLayout, { preserveFolderIds = new Set(), normalizeOptions = {} } = {}) {
@@ -1577,13 +1593,13 @@ function promptLayoutFromDom(list, sourceLayout, { preserveFolderIds = new Set()
     const seenPreservedFolders = new Set();
 
     for (const element of list.children) {
-        if (element.classList.contains('folderizer-folder')) {
-            const id = element.dataset.folderizerId;
+        if (element.classList.contains('foldy-folder')) {
+            const id = element.dataset.foldyId;
             const source = folderSource.get(id);
             if (!source) continue;
             const items = preserveFolderIds.has(id)
                 ? [...source.items]
-                : [...element.querySelector('.folderizer-folder-items').children]
+                : [...element.querySelector('.foldy-folder-items').children]
                     .map(item => item.dataset.pmIdentifier)
                     .filter(Boolean);
             folders.push({ ...source, items });
@@ -1603,10 +1619,10 @@ function promptLayoutFromDom(list, sourceLayout, { preserveFolderIds = new Set()
 
 function setupPromptSortables(manager) {
     const list = manager.listElement;
-    if (!list?.classList.contains('folderizer-prompt-root')) return;
+    if (!list?.classList.contains('foldy-prompt-root')) return;
     const $list = $(list);
     if ($list.sortable('instance')) $list.sortable('destroy');
-    list.querySelectorAll('.folderizer-prompt-items').forEach(element => {
+    list.querySelectorAll('.foldy-prompt-items').forEach(element => {
         const $element = $(element);
         if ($element.sortable('instance')) $element.sortable('destroy');
     });
@@ -1619,13 +1635,13 @@ function setupPromptSortables(manager) {
             const preservedFolders = new Map(currentPromptLayout.folders
                 .filter(folder => preserveFolderIds.has(folder.id))
                 .map(folder => [folder.id, folder]));
-            list.querySelectorAll('.folderizer-folder').forEach(element => {
-                const preserved = preservedFolders.get(element.dataset.folderizerId);
+            list.querySelectorAll('.foldy-folder').forEach(element => {
+                const preserved = preservedFolders.get(element.dataset.foldyId);
                 if (!preserved) {
                     updateFolderCount(element);
                     return;
                 }
-                const countElement = element.querySelector('.folderizer-folder-count');
+                const countElement = element.querySelector('.foldy-folder-count');
                 if (countElement) countElement.textContent = String(preserved.items.length);
             });
             const next = promptLayoutFromDom(list, currentPromptLayout, { preserveFolderIds });
@@ -1649,34 +1665,34 @@ function setupPromptSortables(manager) {
         lastFolderElement = null;
         draggingPromptIntoFolder = false;
         draggingFolderId = null;
-        list.classList.remove('folderizer-dropping-into-folder');
-        list.querySelectorAll('.folderizer-drop-target').forEach(element => element.classList.remove('folderizer-drop-target'));
+        list.classList.remove('foldy-dropping-into-folder');
+        list.querySelectorAll('.foldy-drop-target').forEach(element => element.classList.remove('foldy-drop-target'));
     };
     const rememberPointer = (event, ui) => {
         if (!draggingPromptIntoFolder) {
             lastFolderElement = null;
-            list.classList.remove('folderizer-dropping-into-folder');
-            list.querySelectorAll('.folderizer-drop-target').forEach(element => element.classList.remove('folderizer-drop-target'));
+            list.classList.remove('foldy-dropping-into-folder');
+            list.querySelectorAll('.foldy-drop-target').forEach(element => element.classList.remove('foldy-drop-target'));
             return;
         }
         lastPointer = { x: event.clientX, y: event.clientY };
         const pointedFolder = document.elementsFromPoint(lastPointer.x, lastPointer.y)
-            .map(element => element.closest?.('.folderizer-prompt-folder'))
+            .map(element => element.closest?.('.foldy-prompt-folder'))
             .find(Boolean);
         lastFolderElement = pointedFolder ?? null;
-        list.classList.toggle('folderizer-dropping-into-folder', Boolean(pointedFolder));
-        list.querySelectorAll('.folderizer-drop-target').forEach(element => element.classList.remove('folderizer-drop-target'));
-        pointedFolder?.classList.add('folderizer-drop-target');
+        list.classList.toggle('foldy-dropping-into-folder', Boolean(pointedFolder));
+        list.querySelectorAll('.foldy-drop-target').forEach(element => element.classList.remove('foldy-drop-target'));
+        pointedFolder?.classList.add('foldy-drop-target');
         const placeholder = ui?.placeholder?.[0];
-        const items = pointedFolder?.querySelector?.('.folderizer-prompt-items');
+        const items = pointedFolder?.querySelector?.('.foldy-prompt-items');
         if (placeholder && items && !items.contains(placeholder)) items.append(placeholder);
     };
     const movePromptIntoPointedFolder = item => {
         if (!item?.classList?.contains('completion_prompt_manager_prompt_draggable') || !lastPointer) return;
         const folderElement = lastFolderElement || document.elementsFromPoint(lastPointer.x, lastPointer.y)
-            .map(element => element.closest?.('.folderizer-prompt-folder'))
+            .map(element => element.closest?.('.foldy-prompt-folder'))
             .find(Boolean);
-        const items = folderElement?.querySelector?.('.folderizer-prompt-items');
+        const items = folderElement?.querySelector?.('.foldy-prompt-items');
         if (!items || items.contains(item)) return;
         items.append(item);
         updateFolderCount(folderElement);
@@ -1695,8 +1711,8 @@ function setupPromptSortables(manager) {
     $list.sortable({
         delay: getSortableDelay(),
         handle: '.drag-handle',
-        items: '> .completion_prompt_manager_prompt_draggable, > .folderizer-folder',
-        placeholder: 'folderizer-drop-placeholder',
+        items: '> .completion_prompt_manager_prompt_draggable, > .foldy-folder',
+        placeholder: 'foldy-drop-placeholder',
         helper: 'clone',
         appendTo: document.body,
         zIndex: 10000,
@@ -1706,7 +1722,7 @@ function setupPromptSortables(manager) {
             const item = ui.item?.[0];
             sortingPrompt = true;
             draggingPromptIntoFolder = item?.classList?.contains('completion_prompt_manager_prompt_draggable') ?? false;
-            draggingFolderId = item?.classList?.contains('folderizer-folder') ? item.dataset.folderizerId : null;
+            draggingFolderId = item?.classList?.contains('foldy-folder') ? item.dataset.foldyId : null;
         },
         sort: rememberPointer,
         stop: (_, ui) => {
@@ -1717,8 +1733,8 @@ function setupPromptSortables(manager) {
                         manager.render(false);
                         return;
                     }
-                    const preserveFolderIds = item?.classList?.contains('folderizer-folder')
-                        ? new Set([item.dataset.folderizerId].filter(Boolean))
+                    const preserveFolderIds = item?.classList?.contains('foldy-folder')
+                        ? new Set([item.dataset.foldyId].filter(Boolean))
                         : new Set();
                     movePromptIntoPointedFolder(item);
                     await saveFromDom({ preserveFolderIds });
@@ -1729,13 +1745,13 @@ function setupPromptSortables(manager) {
             });
         },
     });
-    list.querySelectorAll('.folderizer-prompt-items').forEach(element => {
+    list.querySelectorAll('.foldy-prompt-items').forEach(element => {
         $(element).sortable({
             delay: getSortableDelay(),
             handle: '.drag-handle',
             items: '> .completion_prompt_manager_prompt_draggable',
-            connectWith: '#completion_prompt_manager_list, .folderizer-prompt-items',
-            placeholder: 'folderizer-drop-placeholder',
+            connectWith: '#completion_prompt_manager_list, .foldy-prompt-items',
+            placeholder: 'foldy-drop-placeholder',
             helper: 'clone',
             appendTo: document.body,
             zIndex: 10000,
@@ -1745,22 +1761,22 @@ function setupPromptSortables(manager) {
                 const item = ui.item?.[0];
                 sortingPrompt = true;
                 draggingPromptIntoFolder = item?.classList?.contains('completion_prompt_manager_prompt_draggable') ?? false;
-                draggingFolderId = item?.classList?.contains('folderizer-folder') ? item.dataset.folderizerId : null;
+                draggingFolderId = item?.classList?.contains('foldy-folder') ? item.dataset.foldyId : null;
             },
             sort: rememberPointer,
             receive: (_, ui) => {
-                if (ui.item.hasClass('folderizer-folder')) $(ui.sender).sortable('cancel');
+                if (ui.item.hasClass('foldy-folder')) $(ui.sender).sortable('cancel');
             },
             stop: (_, ui) => {
                 afterPromptSort(async () => {
                     try {
                         const item = ui.item?.[0];
-                        if (item?.classList?.contains('folderizer-folder')) {
+                        if (item?.classList?.contains('foldy-folder')) {
                             manager.render(false);
                             return;
                         }
-                        const preserveFolderIds = item?.classList?.contains('folderizer-folder')
-                            ? new Set([item.dataset.folderizerId].filter(Boolean))
+                        const preserveFolderIds = item?.classList?.contains('foldy-folder')
+                            ? new Set([item.dataset.foldyId].filter(Boolean))
                             : new Set();
                         movePromptIntoPointedFolder(item);
                         await saveFromDom({ preserveFolderIds });
@@ -1779,7 +1795,7 @@ async function enhancePromptList(manager) {
     if (!list || !featureEnabled('prompts')) return;
     const { owner, layout } = readPromptLayout(manager);
     currentPromptLayout = layout;
-    list.classList.add('folderizer-prompt-root');
+    list.classList.add('foldy-prompt-root');
 
     const itemMap = new Map([...list.querySelectorAll('[data-pm-identifier]')].map(element => [element.dataset.pmIdentifier, element]));
     itemMap.forEach(element => element.remove());
@@ -1829,7 +1845,7 @@ async function enhancePromptList(manager) {
         const folderElement = createFolderElement(folder, {
             kind: 'prompt', owner, collapsed, onEdit, onDelete,
         });
-        const items = folderElement.querySelector('.folderizer-folder-items');
+        const items = folderElement.querySelector('.foldy-folder-items');
         folder.items.forEach(id => {
             const item = itemMap.get(id);
             if (item) {
@@ -1874,8 +1890,8 @@ async function installPromptIntegration() {
     const manager = promptManager;
     if (!originalPromptRenderItems) originalPromptRenderItems = manager.renderPromptManagerListItems.bind(manager);
     if (!originalPromptMakeDraggable) originalPromptMakeDraggable = manager.makeDraggable.bind(manager);
-    if (manager.__folderizerInstalled) return;
-    manager.__folderizerInstalled = true;
+    if (manager.__foldyInstalled) return;
+    manager.__foldyInstalled = true;
 
     manager.renderPromptManagerListItems = async function (...args) {
         await originalPromptRenderItems.apply(this, args);
@@ -1894,11 +1910,11 @@ function loreLayoutFromDom(list, sourceLayout, allIds) {
     const root = [];
     const folders = [];
     for (const element of list.children) {
-        if (element.classList.contains('folderizer-folder')) {
-            const id = element.dataset.folderizerId;
+        if (element.classList.contains('foldy-folder')) {
+            const id = element.dataset.foldyId;
             const source = folderSource.get(id);
             if (!source) continue;
-            const renderedItems = [...element.querySelector('.folderizer-folder-items').children]
+            const renderedItems = [...element.querySelector('.foldy-folder-items').children]
                 .map(item => item.getAttribute('uid'))
                 .filter(Boolean);
             const items = element.classList.contains('is-collapsed') ? [...source.items] : renderedItems;
@@ -1999,25 +2015,25 @@ async function exportLorebookBundle() {
         layout: cloneJson(layout),
         data: cloneJson(data),
     }, bundleFilename(name));
-    toastr.success('Folderizer 로어북 번들을 내보냈습니다.');
+    toastr.success('Foldy 로어북 번들을 내보냈습니다.');
 }
 
 async function importLorebookBundle() {
     const bundle = await readJsonFile();
     if (!bundle || !assertBundle(bundle, 'lorebooks')) return;
     if (!bundle.data?.entries) {
-        toastr.error('Folderizer 로어북 번들에 로어북 데이터가 없습니다.');
+        toastr.error('Foldy 로어북 번들에 로어북 데이터가 없습니다.');
         return;
     }
     const name = String(bundle.owner || bundle.data.name || selectedLorebookName() || '').trim();
     if (!name) {
-        toastr.warning('Folderizer 로어북 번들에 로어북 이름이 없습니다.');
+        toastr.warning('Foldy 로어북 번들에 로어북 이름이 없습니다.');
         return;
     }
     const exists = world_names.includes(name);
     const confirmed = await Popup.show.confirm('로어북 번들 불러오기', exists
-        ? `기존 로어북 "${name}"을 이 Folderizer 번들로 덮어쓸까요?`
-        : `이 Folderizer 번들로 새 로어북 "${name}"을 만들까요?`);
+        ? `기존 로어북 "${name}"을 이 Foldy 번들로 덮어쓸까요?`
+        : `이 Foldy 번들로 새 로어북 "${name}"을 만들까요?`);
     if (!confirmed) return;
 
     const data = cloneJson(bundle.data);
@@ -2030,7 +2046,7 @@ async function importLorebookBundle() {
     if (index >= 0) $('#world_editor_select').val(index).trigger('change');
     await reloadEditor(name, true);
     if (document.getElementById('world_info_sort_order')?.value === LORE_SORT_VALUE) queueLoreRender();
-    toastr.success('Folderizer 로어북 번들을 불러왔습니다.');
+    toastr.success('Foldy 로어북 번들을 불러왔습니다.');
 }
 
 async function createLorebookEntryInFolderOrder() {
@@ -2159,7 +2175,7 @@ function setupLoreSortables(name, data, layout) {
     if (!list) return;
     const $list = $(list);
     if ($list.sortable('instance')) $list.sortable('destroy');
-    list.querySelectorAll('.folderizer-lore-items').forEach(element => {
+    list.querySelectorAll('.foldy-lore-items').forEach(element => {
         const $element = $(element);
         if ($element.sortable('instance')) $element.sortable('destroy');
     });
@@ -2174,7 +2190,7 @@ function setupLoreSortables(name, data, layout) {
         }
         saving = true;
         try {
-            list.querySelectorAll('.folderizer-folder').forEach(updateFolderCount);
+            list.querySelectorAll('.foldy-folder').forEach(updateFolderCount);
             const next = loreLayoutFromDom(list, layout, allIds);
             Object.assign(layout, next);
             await persistLoreLayout(name, layout);
@@ -2207,35 +2223,35 @@ function setupLoreSortables(name, data, layout) {
         lastFolderElement = null;
         draggingLoreIntoFolder = false;
         draggingLoreFolderId = null;
-        list.classList.remove('folderizer-dropping-into-folder');
-        list.querySelectorAll('.folderizer-drop-target').forEach(element => element.classList.remove('folderizer-drop-target'));
+        list.classList.remove('foldy-dropping-into-folder');
+        list.querySelectorAll('.foldy-drop-target').forEach(element => element.classList.remove('foldy-drop-target'));
     };
     const rememberPointer = event => {
         if (!draggingLoreIntoFolder) {
             lastFolderElement = null;
-            list.classList.remove('folderizer-dropping-into-folder');
-            list.querySelectorAll('.folderizer-drop-target').forEach(element => element.classList.remove('folderizer-drop-target'));
+            list.classList.remove('foldy-dropping-into-folder');
+            list.querySelectorAll('.foldy-drop-target').forEach(element => element.classList.remove('foldy-drop-target'));
             return;
         }
         lastPointer = { x: event.clientX, y: event.clientY };
         const pointedFolder = document.elementsFromPoint(lastPointer.x, lastPointer.y)
-            .map(element => element.closest?.('.folderizer-lore-folder'))
+            .map(element => element.closest?.('.foldy-lore-folder'))
             .find(Boolean);
         lastFolderElement = pointedFolder ?? null;
-        list.classList.toggle('folderizer-dropping-into-folder', Boolean(pointedFolder));
-        list.querySelectorAll('.folderizer-drop-target').forEach(element => element.classList.remove('folderizer-drop-target'));
-        pointedFolder?.classList.add('folderizer-drop-target');
+        list.classList.toggle('foldy-dropping-into-folder', Boolean(pointedFolder));
+        list.querySelectorAll('.foldy-drop-target').forEach(element => element.classList.remove('foldy-drop-target'));
+        pointedFolder?.classList.add('foldy-drop-target');
     };
     const moveLoreIntoPointedFolder = item => {
         if (!item?.hasAttribute?.('uid') || !lastPointer) return;
         const folderElement = lastFolderElement || document.elementsFromPoint(lastPointer.x, lastPointer.y)
-            .map(element => element.closest?.('.folderizer-lore-folder'))
+            .map(element => element.closest?.('.foldy-lore-folder'))
             .find(Boolean);
-        const items = folderElement?.querySelector?.('.folderizer-lore-items');
+        const items = folderElement?.querySelector?.('.foldy-lore-items');
         if (!items || items.contains(item)) return;
         items.append(item);
         updateFolderCount(folderElement);
-        return folderElement.dataset.folderizerId;
+        return folderElement.dataset.foldyId;
     };
     const afterLoreSort = task => {
         setTimeout(() => {
@@ -2251,8 +2267,8 @@ function setupLoreSortables(name, data, layout) {
     $list.sortable({
         delay: getSortableDelay(),
         handle: '.drag-handle',
-        items: '> [uid], > .folderizer-folder',
-        placeholder: 'folderizer-drop-placeholder',
+        items: '> [uid], > .foldy-folder',
+        placeholder: 'foldy-drop-placeholder',
         helper: 'clone',
         appendTo: document.body,
         zIndex: 10000,
@@ -2262,7 +2278,7 @@ function setupLoreSortables(name, data, layout) {
             const item = ui.item?.[0];
             sortingLore = true;
             draggingLoreIntoFolder = item?.hasAttribute?.('uid') ?? false;
-            draggingLoreFolderId = item?.classList?.contains('folderizer-folder') ? item.dataset.folderizerId : null;
+            draggingLoreFolderId = item?.classList?.contains('foldy-folder') ? item.dataset.foldyId : null;
         },
         sort: rememberPointer,
         stop: (_, ui) => {
@@ -2283,13 +2299,13 @@ function setupLoreSortables(name, data, layout) {
             });
         },
     });
-    list.querySelectorAll('.folderizer-lore-items').forEach(element => {
+    list.querySelectorAll('.foldy-lore-items').forEach(element => {
         $(element).sortable({
             delay: getSortableDelay(),
             handle: '.drag-handle',
             items: '> [uid]',
-            connectWith: '#world_popup_entries_list, .folderizer-lore-items',
-            placeholder: 'folderizer-drop-placeholder',
+            connectWith: '#world_popup_entries_list, .foldy-lore-items',
+            placeholder: 'foldy-drop-placeholder',
             helper: 'clone',
             appendTo: document.body,
             zIndex: 10000,
@@ -2299,17 +2315,17 @@ function setupLoreSortables(name, data, layout) {
                 const item = ui.item?.[0];
                 sortingLore = true;
                 draggingLoreIntoFolder = item?.hasAttribute?.('uid') ?? false;
-                draggingLoreFolderId = item?.classList?.contains('folderizer-folder') ? item.dataset.folderizerId : null;
+                draggingLoreFolderId = item?.classList?.contains('foldy-folder') ? item.dataset.foldyId : null;
             },
             sort: rememberPointer,
             receive: (_, ui) => {
-                if (ui.item.hasClass('folderizer-folder')) $(ui.sender).sortable('cancel');
+                if (ui.item.hasClass('foldy-folder')) $(ui.sender).sortable('cancel');
             },
             stop: (_, ui) => {
                 afterLoreSort(async () => {
                     try {
                         const item = ui.item?.[0];
-                        if (item?.classList?.contains('folderizer-folder')) {
+                        if (item?.classList?.contains('foldy-folder')) {
                             queueLoreRender();
                             return;
                         }
@@ -2353,8 +2369,8 @@ async function renderLorebookFolders() {
 
         loreObserver?.disconnect();
         list.innerHTML = '';
-        list.classList.add('folderizer-lore-root');
-        list.classList.toggle('folderizer-searching', Boolean(query));
+        list.classList.add('foldy-lore-root');
+        list.classList.toggle('foldy-searching', Boolean(query));
         $('#world_info_pagination').empty();
         const headers = await renderTemplateAsync('worldInfoKeywordHeaders');
         list.insertAdjacentHTML('beforeend', headers);
@@ -2412,7 +2428,7 @@ async function renderLorebookFolders() {
                 onStateToggle: async (id, currentState) => setLoreFolderEnabled(name, data, layout, id, currentState !== 'on'),
             });
             if (query) folderElement.classList.remove('is-collapsed');
-            const items = folderElement.querySelector('.folderizer-folder-items');
+            const items = folderElement.querySelector('.foldy-folder-items');
             for (const id of shownItems) {
                 const block = await getWorldEntry(name, data, entryMap.get(id));
                 if (block?.[0]) {
@@ -2428,11 +2444,11 @@ async function renderLorebookFolders() {
                     items.append(block[0]);
                 }
             }
-            folderElement.querySelector('.folderizer-folder-count').textContent = String(folder.items.length);
+            folderElement.querySelector('.foldy-folder-count').textContent = String(folder.items.length);
             list.append(folderElement);
         }
 
-        document.querySelector('#WorldInfo .folderizer-toolbar[data-folderizer-toolbar="lore"]')?.remove();
+        document.querySelector('#WorldInfo .foldy-toolbar[data-foldy-toolbar="lore"]')?.remove();
         list.querySelectorAll('textarea[name="comment"]').forEach(element => initScrollHeight($(element)));
         if (!query) setupLoreSortables(name, data, layout);
     } catch (error) {
@@ -2465,11 +2481,11 @@ function applyLorebookFeatureState() {
     const option = sort?.querySelector(`option[value="${LORE_SORT_VALUE}"]`);
     if (option) option.disabled = !enabled;
     [
-        'folderizer_lore_create',
-        'folderizer_lore_import',
-        'folderizer_lore_export',
-        'folderizer_lore_expand_all',
-        'folderizer_lore_collapse_all',
+        'foldy_lore_create',
+        'foldy_lore_import',
+        'foldy_lore_export',
+        'foldy_lore_expand_all',
+        'foldy_lore_collapse_all',
     ].forEach(id => {
         const element = document.getElementById(id);
         if (!element) return;
@@ -2482,8 +2498,8 @@ function applyLorebookFeatureState() {
     });
     if (enabled) return;
 
-    document.querySelector('#WorldInfo .folderizer-toolbar[data-folderizer-toolbar="lore"]')?.remove();
-    document.getElementById('world_popup_entries_list')?.classList.remove('folderizer-lore-root', 'folderizer-searching');
+    document.querySelector('#WorldInfo .foldy-toolbar[data-foldy-toolbar="lore"]')?.remove();
+    document.getElementById('world_popup_entries_list')?.classList.remove('foldy-lore-root', 'foldy-searching');
     if (sort?.value === LORE_SORT_VALUE) {
         sort.value = '0';
         accountStorage.setItem(SORT_ORDER_KEY, '0');
@@ -2504,34 +2520,34 @@ function installLorebookIntegration() {
         option.dataset.order = 'asc';
         sort.append(option);
     }
-    if (!document.getElementById('folderizer_lore_create')) {
-        const create = createIconButton('fa-folder-plus', '추가', 'folderizer-lore-create');
-        create.id = 'folderizer_lore_create';
+    if (!document.getElementById('foldy_lore_create')) {
+        const create = createIconButton('fa-folder-plus', '추가', 'foldy-lore-create');
+        create.id = 'foldy_lore_create';
         create.addEventListener('click', createLorebookFolder);
         document.getElementById('world_popup_new')?.after(create);
     }
-    if (!document.getElementById('folderizer_lore_export')) {
+    if (!document.getElementById('foldy_lore_export')) {
         const [importButton, exportButton] = createBundleButtons(exportLorebookBundle, importLorebookBundle);
-        exportButton.id = 'folderizer_lore_export';
-        importButton.id = 'folderizer_lore_import';
-        exportButton.classList.add('folderizer-lore-bundle');
-        importButton.classList.add('folderizer-lore-bundle');
-        document.getElementById('folderizer_lore_create')?.after(importButton, exportButton);
+        exportButton.id = 'foldy_lore_export';
+        importButton.id = 'foldy_lore_import';
+        exportButton.classList.add('foldy-lore-bundle');
+        importButton.classList.add('foldy-lore-bundle');
+        document.getElementById('foldy_lore_create')?.after(importButton, exportButton);
     }
-    if (!document.getElementById('folderizer_lore_collapse_all')) {
+    if (!document.getElementById('foldy_lore_collapse_all')) {
         const [expandAll, collapseAll] = createLoreCollapseButtons();
-        collapseAll.id = 'folderizer_lore_collapse_all';
-        expandAll.id = 'folderizer_lore_expand_all';
-        document.getElementById('folderizer_lore_export')?.after(expandAll, collapseAll);
+        collapseAll.id = 'foldy_lore_collapse_all';
+        expandAll.id = 'foldy_lore_expand_all';
+        document.getElementById('foldy_lore_export')?.after(expandAll, collapseAll);
     }
     applyLorebookFeatureState();
-    document.querySelector('#WorldInfo .folderizer-toolbar[data-folderizer-toolbar="lore"]')?.remove();
+    document.querySelector('#WorldInfo .foldy-toolbar[data-foldy-toolbar="lore"]')?.remove();
 
     sort.addEventListener('change', event => {
         if (event.target.value !== LORE_SORT_VALUE) {
-            const wasFolderOrder = accountStorage.getItem(SORT_ORDER_KEY) === LORE_SORT_VALUE;
-            document.querySelector('#WorldInfo .folderizer-toolbar')?.remove();
-            document.getElementById('world_popup_entries_list')?.classList.remove('folderizer-lore-root', 'folderizer-searching');
+            const wasFolderOrder = storedLoreSortValue() === LORE_SORT_VALUE;
+            document.querySelector('#WorldInfo .foldy-toolbar')?.remove();
+            document.getElementById('world_popup_entries_list')?.classList.remove('foldy-lore-root', 'foldy-searching');
             if (wasFolderOrder && featureEnabled('lorebooks')) {
                 event.stopImmediatePropagation();
                 const value = String(event.target.value);
@@ -2585,10 +2601,10 @@ function installLorebookIntegration() {
     });
     const list = document.getElementById('world_popup_entries_list');
     if (list) loreObserver.observe(list, { childList: true });
-    $('#world_editor_select').on('change.folderizer', () => {
+    $('#world_editor_select').on('change.foldy', () => {
         if (sort.value === LORE_SORT_VALUE) setTimeout(queueLoreRender, 0);
     });
-    if (featureEnabled('lorebooks') && accountStorage.getItem(SORT_ORDER_KEY) === LORE_SORT_VALUE) {
+    if (featureEnabled('lorebooks') && storedLoreSortValue() === LORE_SORT_VALUE) {
         sort.value = LORE_SORT_VALUE;
         queueLoreRender();
     }
@@ -2627,14 +2643,14 @@ async function exportRegexBundle(typeKey) {
         layout: cloneJson(layout),
         scripts,
     }, bundleFilename(regexExportName(typeKey)));
-    toastr.success('Folderizer 정규식 번들을 내보냈습니다.');
+    toastr.success('Foldy 정규식 번들을 내보냈습니다.');
 }
 
 async function importRegexBundle(typeKey) {
     const bundle = await readJsonFile();
     if (!bundle || !assertBundle(bundle, 'regex')) return;
     if (!Array.isArray(bundle.scripts)) {
-        toastr.error('Folderizer 정규식 번들에 정규식 데이터가 없습니다.');
+        toastr.error('Foldy 정규식 번들에 정규식 데이터가 없습니다.');
         return;
     }
     if (bundle.typeKey && bundle.typeKey !== typeKey) {
@@ -2642,7 +2658,7 @@ async function importRegexBundle(typeKey) {
         return;
     }
     const label = REGEX_TYPES[typeKey].label;
-    const confirmed = await Popup.show.confirm('정규식 번들 불러오기', `이 Folderizer 번들을 현재 ${label} 정규식 목록으로 불러올까요? 같은 이름의 정규식 스크립트는 대체되고, 나머지는 추가됩니다.`);
+    const confirmed = await Popup.show.confirm('정규식 번들 불러오기', `이 Foldy 번들을 현재 ${label} 정규식 목록으로 불러올까요? 같은 이름의 정규식 스크립트는 대체되고, 나머지는 추가됩니다.`);
     if (!confirmed) return;
 
     const type = REGEX_TYPES[typeKey].scriptType;
@@ -2681,7 +2697,7 @@ async function importRegexBundle(typeKey) {
     await saveScriptsByType(orderedScripts, type);
     if (getCurrentChatId()) await reloadCurrentChat();
     enhanceRegexLists();
-    toastr.success('Folderizer 정규식 번들을 불러왔습니다.');
+    toastr.success('Foldy 정규식 번들을 불러왔습니다.');
 }
 
 function regexLayoutFromDom(list, sourceLayout, typeKey) {
@@ -2692,11 +2708,11 @@ function regexLayoutFromDom(list, sourceLayout, typeKey) {
     const root = [];
     const folders = [];
     for (const element of list.children) {
-        if (element.classList.contains('folderizer-folder')) {
-            const id = element.dataset.folderizerId;
+        if (element.classList.contains('foldy-folder')) {
+            const id = element.dataset.foldyId;
             const source = folderSource.get(id);
             if (!source) continue;
-            const visibleItems = [...element.querySelector('.folderizer-folder-items').children]
+            const visibleItems = [...element.querySelector('.foldy-folder-items').children]
                 .map(item => item.id)
                 .filter(Boolean);
             const hiddenItems = source.items.filter(itemId => !visibleIds.has(itemId));
@@ -2729,16 +2745,16 @@ function unwrapRegexFolders(list) {
     const items = [...list.querySelectorAll('.regex-script-label')];
     list.innerHTML = '';
     items.forEach(item => list.append(item));
-    list.closest('.inline-drawer-content, .regex_settings, #regex_container')?.querySelector('.folderizer-toolbar')?.remove();
+    list.closest('.inline-drawer-content, .regex_settings, #regex_container')?.querySelector('.foldy-toolbar')?.remove();
 }
 
 function setupRegexSortable(typeKey, owner, layout) {
     const list = document.querySelector(REGEX_TYPES[typeKey].selector);
     if (!list) return;
-    const folderItemsSelector = `.folderizer-regex-items[data-folderizer-regex-type="${typeKey}"]`;
+    const folderItemsSelector = `.foldy-regex-items[data-foldy-regex-type="${typeKey}"]`;
     const $list = $(list);
     if ($list.sortable('instance')) $list.sortable('destroy');
-    list.querySelectorAll('.folderizer-regex-items').forEach(element => {
+    list.querySelectorAll('.foldy-regex-items').forEach(element => {
         const $element = $(element);
         if ($element.sortable('instance')) $element.sortable('destroy');
     });
@@ -2748,7 +2764,7 @@ function setupRegexSortable(typeKey, owner, layout) {
         if (saving) return;
         saving = true;
         try {
-            list.querySelectorAll('.folderizer-folder').forEach(updateFolderCount);
+            list.querySelectorAll('.foldy-folder').forEach(updateFolderCount);
             const next = regexLayoutFromDom(list, layout, typeKey);
             Object.assign(layout, next);
             await persistRegexLayout(typeKey, owner, layout);
@@ -2771,34 +2787,34 @@ function setupRegexSortable(typeKey, owner, layout) {
         lastFolderElement = null;
         draggingRegexIntoFolder = false;
         draggingRegexFolderId = null;
-        list.classList.remove('folderizer-dropping-into-folder');
-        list.querySelectorAll('.folderizer-drop-target').forEach(element => element.classList.remove('folderizer-drop-target'));
+        list.classList.remove('foldy-dropping-into-folder');
+        list.querySelectorAll('.foldy-drop-target').forEach(element => element.classList.remove('foldy-drop-target'));
     };
     const rememberPointer = (event, ui) => {
         if (!draggingRegexIntoFolder) {
             lastFolderElement = null;
-            list.classList.remove('folderizer-dropping-into-folder');
-            list.querySelectorAll('.folderizer-drop-target').forEach(element => element.classList.remove('folderizer-drop-target'));
+            list.classList.remove('foldy-dropping-into-folder');
+            list.querySelectorAll('.foldy-drop-target').forEach(element => element.classList.remove('foldy-drop-target'));
             return;
         }
         lastPointer = { x: event.clientX, y: event.clientY };
         const pointedFolder = document.elementsFromPoint(lastPointer.x, lastPointer.y)
-            .map(element => element.closest?.('.folderizer-regex-folder'))
+            .map(element => element.closest?.('.foldy-regex-folder'))
             .find(Boolean);
         lastFolderElement = pointedFolder ?? null;
-        list.classList.toggle('folderizer-dropping-into-folder', Boolean(pointedFolder));
-        list.querySelectorAll('.folderizer-drop-target').forEach(element => element.classList.remove('folderizer-drop-target'));
-        pointedFolder?.classList.add('folderizer-drop-target');
+        list.classList.toggle('foldy-dropping-into-folder', Boolean(pointedFolder));
+        list.querySelectorAll('.foldy-drop-target').forEach(element => element.classList.remove('foldy-drop-target'));
+        pointedFolder?.classList.add('foldy-drop-target');
         const placeholder = ui?.placeholder?.[0];
-        const items = pointedFolder?.querySelector?.('.folderizer-regex-items');
+        const items = pointedFolder?.querySelector?.('.foldy-regex-items');
         if (placeholder && items && !items.contains(placeholder)) items.append(placeholder);
     };
     const moveRegexIntoPointedFolder = item => {
         if (!item?.classList?.contains('regex-script-label') || !lastPointer) return;
         const folderElement = lastFolderElement || document.elementsFromPoint(lastPointer.x, lastPointer.y)
-            .map(element => element.closest?.('.folderizer-regex-folder'))
+            .map(element => element.closest?.('.foldy-regex-folder'))
             .find(Boolean);
-        const items = folderElement?.querySelector?.('.folderizer-regex-items');
+        const items = folderElement?.querySelector?.('.foldy-regex-items');
         if (!items || items.contains(item)) return;
         items.append(item);
         updateFolderCount(folderElement);
@@ -2817,8 +2833,8 @@ function setupRegexSortable(typeKey, owner, layout) {
     $list.sortable({
         delay: getSortableDelay(),
         handle: '.drag-handle',
-        items: '> .regex-script-label, > .folderizer-folder',
-        placeholder: 'folderizer-drop-placeholder',
+        items: '> .regex-script-label, > .foldy-folder',
+        placeholder: 'foldy-drop-placeholder',
         helper: 'clone',
         appendTo: document.body,
         zIndex: 10000,
@@ -2828,7 +2844,7 @@ function setupRegexSortable(typeKey, owner, layout) {
             const item = ui.item?.[0];
             sortingRegex = true;
             draggingRegexIntoFolder = item?.classList?.contains('regex-script-label') ?? false;
-            draggingRegexFolderId = item?.classList?.contains('folderizer-folder') ? item.dataset.folderizerId : null;
+            draggingRegexFolderId = item?.classList?.contains('foldy-folder') ? item.dataset.foldyId : null;
         },
         sort: rememberPointer,
         stop: async (_, ui) => {
@@ -2848,13 +2864,13 @@ function setupRegexSortable(typeKey, owner, layout) {
             });
         },
     });
-    list.querySelectorAll('.folderizer-regex-items').forEach(element => {
+    list.querySelectorAll('.foldy-regex-items').forEach(element => {
         $(element).sortable({
             delay: getSortableDelay(),
             handle: '.drag-handle',
             items: '> .regex-script-label',
             connectWith: `${REGEX_TYPES[typeKey].selector}, ${folderItemsSelector}`,
-            placeholder: 'folderizer-drop-placeholder',
+            placeholder: 'foldy-drop-placeholder',
             helper: 'clone',
             appendTo: document.body,
             zIndex: 10000,
@@ -2864,17 +2880,17 @@ function setupRegexSortable(typeKey, owner, layout) {
                 const item = ui.item?.[0];
                 sortingRegex = true;
                 draggingRegexIntoFolder = item?.classList?.contains('regex-script-label') ?? false;
-                draggingRegexFolderId = item?.classList?.contains('folderizer-folder') ? item.dataset.folderizerId : null;
+                draggingRegexFolderId = item?.classList?.contains('foldy-folder') ? item.dataset.foldyId : null;
             },
             sort: rememberPointer,
             receive: (_, ui) => {
-                if (ui.item.hasClass('folderizer-folder')) $(ui.sender).sortable('cancel');
+                if (ui.item.hasClass('foldy-folder')) $(ui.sender).sortable('cancel');
             },
             stop: async (_, ui) => {
                 afterRegexSort(async () => {
                     try {
                         const item = ui.item?.[0];
-                        if (item?.classList?.contains('folderizer-folder')) {
+                        if (item?.classList?.contains('foldy-folder')) {
                             enhanceRegexLists();
                             return;
                         }
@@ -2894,7 +2910,7 @@ function enhanceRegexList(typeKey) {
     const list = document.querySelector(REGEX_TYPES[typeKey].selector);
     if (!list) return;
     if (!featureEnabled('regex')) {
-        if (list.querySelector('.folderizer-folder')) unwrapRegexFolders(list);
+        if (list.querySelector('.foldy-folder')) unwrapRegexFolders(list);
         return;
     }
     const { owner, layout } = readRegexLayout(typeKey);
@@ -2908,7 +2924,7 @@ function enhanceRegexList(typeKey) {
     });
     const collapsed = ownerCollapsed('regex', `${typeKey}:${owner}`);
     const folderMap = new Map(layout.folders.map(folder => [folder.id, folder]));
-    list.classList.add('folderizer-regex-root');
+    list.classList.add('foldy-regex-root');
 
     const rerender = () => enhanceRegexLists();
     const onEdit = async id => {
@@ -2960,8 +2976,8 @@ function enhanceRegexList(typeKey) {
             state,
             onStateToggle: async (id, currentState) => setRegexFolderEnabled(typeKey, layout, id, currentState !== 'on'),
         });
-        const items = folderElement.querySelector('.folderizer-folder-items');
-        items.dataset.folderizerRegexType = typeKey;
+        const items = folderElement.querySelector('.foldy-folder-items');
+        items.dataset.foldyRegexType = typeKey;
         folder.items.forEach(id => {
             const item = itemMap.get(id);
             if (item) {
@@ -3031,62 +3047,62 @@ function installRegexIntegration() {
 }
 
 async function renderSettings() {
-    if (document.getElementById('folderizer_settings')) return;
-    const html = await renderExtensionTemplateAsync('third-party/Folderizer', 'settings');
+    if (document.getElementById('foldy_settings')) return;
+    const html = await renderExtensionTemplateAsync('third-party/Foldy', 'settings');
     $('#extensions_settings2').append(html);
 
     const sync = () => {
-        $('#folderizer_enable_prompts').prop('checked', featureEnabled('prompts'));
-        $('#folderizer_enable_lorebooks').prop('checked', featureEnabled('lorebooks'));
-        $('#folderizer_enable_regex').prop('checked', featureEnabled('regex'));
+        $('#foldy_enable_prompts').prop('checked', featureEnabled('prompts'));
+        $('#foldy_enable_lorebooks').prop('checked', featureEnabled('lorebooks'));
+        $('#foldy_enable_regex').prop('checked', featureEnabled('regex'));
     };
     const rerender = () => {
         promptManager?.render?.(false);
         queueLoreRender();
         enhanceRegexLists();
     };
-    $('#folderizer_enable_prompts').on('input', function () {
+    $('#foldy_enable_prompts').on('input', function () {
         settings().features.prompts = !!this.checked;
         saveSettingsDebounced();
         debugLog('info', `프롬프트 폴더 ${this.checked ? '활성화' : '비활성화'}`);
         rerender();
     });
-    $('#folderizer_enable_lorebooks').on('input', function () {
+    $('#foldy_enable_lorebooks').on('input', function () {
         settings().features.lorebooks = !!this.checked;
         saveSettingsDebounced();
         debugLog('info', `로어북 폴더 ${this.checked ? '활성화' : '비활성화'}`);
         applyLorebookFeatureState();
         rerender();
     });
-    $('#folderizer_enable_regex').on('input', function () {
+    $('#foldy_enable_regex').on('input', function () {
         settings().features.regex = !!this.checked;
         saveSettingsDebounced();
         debugLog('info', `정규식 폴더 ${this.checked ? '활성화' : '비활성화'}`);
         rerender();
     });
-    $('#folderizer_clear_prompts').on('click', async () => {
-        if (!await Popup.show.confirm('프롬프트 폴더 데이터 초기화', '프롬프트 순서는 유지하고 Folderizer 프롬프트 배치만 삭제합니다.')) return;
+    $('#foldy_clear_prompts').on('click', async () => {
+        if (!await Popup.show.confirm('프롬프트 폴더 데이터 초기화', '프롬프트 순서는 유지하고 Foldy 프롬프트 배치만 삭제합니다.')) return;
         settings().layouts.prompts = {};
         settings().collapsed.prompt = {};
         saveSettingsDebounced();
         rerender();
     });
-    $('#folderizer_clear_lorebooks').on('click', async () => {
-        if (!await Popup.show.confirm('로어북 폴더 데이터 초기화', '로어북 항목은 유지하고 Folderizer 로어북 배치만 삭제합니다.')) return;
+    $('#foldy_clear_lorebooks').on('click', async () => {
+        if (!await Popup.show.confirm('로어북 폴더 데이터 초기화', '로어북 항목은 유지하고 Foldy 로어북 배치만 삭제합니다.')) return;
         settings().layouts.lorebooks = {};
         settings().collapsed.lore = {};
         saveSettingsDebounced();
         rerender();
     });
-    $('#folderizer_clear_regex').on('click', async () => {
-        if (!await Popup.show.confirm('정규식 폴더 데이터 초기화', '정규식 스크립트는 유지하고 Folderizer 정규식 배치만 삭제합니다.')) return;
+    $('#foldy_clear_regex').on('click', async () => {
+        if (!await Popup.show.confirm('정규식 폴더 데이터 초기화', '정규식 스크립트는 유지하고 Foldy 정규식 배치만 삭제합니다.')) return;
         settings().layouts.regex = { global: {}, scoped: {}, preset: {} };
         settings().collapsed.regex = {};
         saveSettingsDebounced();
         rerender();
     });
-    $('#folderizer_clear_all').on('click', async () => {
-        if (!await Popup.show.confirm('모든 Folderizer 데이터 초기화', '원본 항목은 유지하고 Folderizer 배치와 접힘 상태만 삭제합니다.')) return;
+    $('#foldy_clear_all').on('click', async () => {
+        if (!await Popup.show.confirm('모든 Foldy 데이터 초기화', '원본 항목은 유지하고 Foldy 배치와 접힘 상태만 삭제합니다.')) return;
         settings().layouts = { prompts: {}, lorebooks: {}, regex: { global: {}, scoped: {}, preset: {} } };
         settings().collapsed = { prompt: {}, lore: {}, regex: {} };
         saveSettingsDebounced();
@@ -3099,7 +3115,7 @@ export async function init() {
     settings();
     installDebugListeners();
     registerSlashCommands();
-    debugLog('info', 'Folderizer 초기화 시작');
+    debugLog('info', 'Foldy 초기화 시작');
     await renderSettings();
     installLorebookIntegration();
     installRegexIntegration();
